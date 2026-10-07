@@ -24,6 +24,7 @@ export function SearchForm({ initial }: { initial?: Record<string, string> }) {
     q.set("departureDate", departureDate);
     if (returnDate) q.set("returnDate", returnDate);
     q.set("adults", String(fd.get("adults")));
+    q.set("children", "0");
     q.set("cabinClass", String(fd.get("cabinClass")));
     if (fd.get("nearby")) q.set("nearby", "true");
     if (fd.get("directOnly")) q.set("directOnly", "true");
@@ -63,7 +64,7 @@ export function SearchForm({ initial }: { initial?: Record<string, string> }) {
         <label className="flex items-center gap-1.5 text-muted" title="Phase 3에서 제공됩니다"><input type="checkbox" disabled /> 날짜 ±3일 (준비 중)</label>
       </div>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      <button type="submit" className="w-full rounded-xl bg-brand py-3 font-semibold text-white">최저가 찾기</button>
+      <button type="submit" className="w-full rounded-xl bg-brand py-3 font-semibold text-white">6개 사이트 최저가 찾기</button>
     </form>
   );
 }

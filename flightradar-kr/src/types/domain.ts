@@ -31,6 +31,9 @@ export interface FlexibleSearchQuery extends FlightSearchQuery {
 
 export type PriceType = "search" | "confirmed" | "indicative";
 
+/** Where the data came from. "demo" is never real market data. */
+export type SourceType = "api" | "affiliate" | "public_web" | "demo";
+
 export interface Baggage {
   /** Checked baggage allowance in kg. 0 = not included. null = unknown. */
   checkedKg: number | null;
@@ -74,6 +77,7 @@ export interface FlightOffer {
   bookingUrl: string;
   fetchedAt: string;
   priceType: PriceType;
+  sourceType: SourceType;
   /** 0..1 — how much the displayed price can be trusted. */
   confidence: number;
 }
@@ -84,6 +88,7 @@ export type ProviderStatus =
   | "partner_required"
   | "unavailable"
   | "temporary_error"
+  | "manual_check" // automatic lookup not possible/confirmed: user must check the site
   | "demo";
 
 export interface ProviderHealth {
@@ -94,6 +99,16 @@ export interface ProviderHealth {
   latencyMs?: number;
 }
 
+/** What a deal provider is asked about; derived from the user's flight search. */
+export interface DealQuery {
+  origins: string[];
+  destinations: string[];
+  departureDate: string;
+  returnDate?: string;
+  /** Free-text keywords (city, country, airport code, month) for providers that search text. */
+  keywords: string[];
+}
+
 export interface TravelDeal {
   id: string;
   provider: string;
@@ -101,14 +116,17 @@ export interface TravelDeal {
   title: string;
   origin?: string;
   destination?: string;
-  departureDate?: string;
-  returnDate?: string;
+  /** Travel window. For a window deal (e.g. whole November) start..end is the allowed range. */
+  travelStartDate?: string;
+  travelEndDate?: string;
   airline?: string;
+  /** Per person, round trip unless the title says otherwise. */
   price: number;
+  currency: string;
   originalPrice?: number;
   discountRate?: number;
   bookingUrl: string;
-  discoveredAt: string;
+  publishedAt: string;
   expiresAt?: string;
   rawSource: string;
 }

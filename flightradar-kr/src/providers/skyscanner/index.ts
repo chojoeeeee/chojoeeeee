@@ -1,7 +1,8 @@
 import "server-only";
 import { env } from "@/lib/env";
 import type { FlightOffer, FlightSearchQuery, ProviderHealth } from "@/types/domain";
-import type { FlightProvider, SearchContext } from "../types";
+import { demoEnabled } from "../demo-mode";
+import { ProviderUnavailableError, type FlightProvider, type SearchContext } from "../types";
 import { generateDemoOffers } from "../mock/generator";
 import { searchLive } from "./client";
 import { mapSkyscannerResponse } from "./mapper";
@@ -28,12 +29,15 @@ export class SkyscannerProvider implements FlightProvider {
   }
 
   isDemo(): boolean {
-    return !this.apiKey();
+    return !this.apiKey() && demoEnabled();
   }
 
   async searchFlights(query: FlightSearchQuery, ctx?: SearchContext): Promise<FlightOffer[]> {
     const apiKey = this.apiKey();
-    if (!apiKey) return generateDemoOffers(query, { provider: this.name, bias: 0.97 });
+    if (!apiKey) {
+      if (demoEnabled()) return generateDemoOffers(query, { provider: this.name, bias: 1.03 });
+      throw new ProviderUnavailableError(this.name, "api_required", "SKYSCANNER_API_KEY가 필요합니다 (파트너 승인 필요)");
+    }
 
     const res = await searchLive(
       { apiKey, market: env("SKYSCANNER_MARKET") ?? "KR", locale: env("SKYSCANNER_LOCALE") ?? "ko-KR" },
@@ -51,7 +55,7 @@ export class SkyscannerProvider implements FlightProvider {
   async healthCheck(): Promise<ProviderHealth> {
     const checkedAt = new Date().toISOString();
     if (!this.apiKey()) {
-      return { provider: this.name, status: "api_required", message: "SKYSCANNER_API_KEY 없음 — DEMO DATA 사용 중", checkedAt };
+      return { provider: this.name, status: "api_required", message: demoEnabled() ? "SKYSCANNER_API_KEY 없음 — DEMO DATA 사용 중" : "SKYSCANNER_API_KEY 없음 (파트너 승인 필요)", checkedAt };
     }
     // A real ping would consume quota; report configured state only.
     return { provider: this.name, status: "connected", message: "API Key 설정됨 (실호출 미검증)", checkedAt };

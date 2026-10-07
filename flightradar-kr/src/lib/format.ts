@@ -22,3 +22,8 @@ export function formatMonthDay(date: string): string {
 export function minutesSince(iso: string, now = Date.now()): number {
   return Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
 }
+
+/** "HH:mm" in Korea time for an ISO timestamp. */
+export function formatKstClock(iso: string): string {
+  return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Seoul" }).format(new Date(iso));
+}

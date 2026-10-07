@@ -1,6 +1,7 @@
 import "server-only";
 import { env } from "@/lib/env";
 import type { FlightOffer, FlightSearchQuery, ProviderHealth } from "@/types/domain";
+import { demoEnabled } from "../demo-mode";
 import { ProviderUnavailableError, type FlightProvider } from "../types";
 import { generateDemoOffers } from "../mock/generator";
 
@@ -22,19 +23,19 @@ export class TripProvider implements FlightProvider {
   }
 
   isDemo(): boolean {
-    return this.mode() === "mock";
+    return this.mode() === "mock" && demoEnabled();
   }
 
   async searchFlights(query: FlightSearchQuery): Promise<FlightOffer[]> {
-    if (this.mode() === "mock") return generateDemoOffers(query, { provider: this.name, bias: 0.99 });
-    throw new ProviderUnavailableError(this.name, "partner_required", "Trip.com live 연동은 아직 구현되지 않았습니다 (파트너 승인 필요)");
+    if (this.mode() === "mock" && demoEnabled()) return generateDemoOffers(query, { provider: this.name, bias: 1.0 });
+    throw new ProviderUnavailableError(this.name, "partner_required", "Trip.com 제휴/파트너 승인 전입니다 (live 연동 미구현)");
   }
 
   async healthCheck(): Promise<ProviderHealth> {
     return {
       provider: this.name,
-      status: this.mode() === "mock" ? "partner_required" : "unavailable",
-      message: this.mode() === "mock" ? "파트너/제휴 승인 전 — DEMO DATA 사용 중" : "live 모드 미구현",
+      status: "partner_required",
+      message: this.mode() === "mock" ? (demoEnabled() ? "파트너/제휴 승인 전 — DEMO DATA 사용 중" : "파트너/제휴 승인 전") : "live 모드 미구현",
       checkedAt: new Date().toISOString(),
     };
   }

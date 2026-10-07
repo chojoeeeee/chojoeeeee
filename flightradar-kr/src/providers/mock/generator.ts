@@ -1,6 +1,7 @@
 import { airportOffsetMinutes } from "@/config/airports";
 import { epochToIso, localToEpoch } from "@/lib/time";
-import type { FlightOffer, FlightSearchQuery } from "@/types/domain";
+import type { DealQuery, FlightOffer, FlightSearchQuery, TravelDeal } from "@/types/domain";
+import { addDays, monthBounds } from "@/lib/dates";
 
 /**
  * DEMO DATA ONLY.
@@ -125,7 +126,42 @@ export function generateDemoOffers(query: FlightSearchQuery, opts: MockOptions):
         bookingUrl: `https://example.com/demo/${opts.provider}`,
         fetchedAt,
         priceType: "search" as const,
+        sourceType: "demo" as const,
         confidence: 0,
       } satisfies FlightOffer;
     });
+}
+
+/**
+ * DEMO DATA ONLY. Two deals per search: a month-wide window deal and an exact
+ * deal one day earlier (so the "shift your dates" tip can be exercised).
+ */
+export function generateDemoDeals(q: DealQuery, provider: string, now: Date = new Date()): TravelDeal[] {
+  const origin = q.origins[0];
+  const destination = q.destinations[0];
+  if (!origin || !destination) return [];
+  const base = 150_000 + Math.round(unit(`${origin}-${destination}-${q.departureDate}`) * 110_000);
+  const round1000 = (n: number) => Math.round(n / 1000) * 1000;
+  const month = monthBounds(q.departureDate);
+  const publishedAt = now.toISOString();
+  const mk = (suffix: string, title: string, price: number, start: string, end: string): TravelDeal => ({
+    id: `${provider}:deal:${destination}:${suffix}:${q.departureDate}`,
+    provider,
+    isDemo: true,
+    title,
+    origin,
+    destination,
+    travelStartDate: start,
+    travelEndDate: end,
+    price,
+    currency: "KRW",
+    bookingUrl: `https://example.com/demo/${provider}`,
+    publishedAt,
+    rawSource: "demo",
+  });
+  const deals = [mk("window", `${destination} 왕복 특가`, round1000(base * 0.7), month.start, month.end)];
+  if (q.returnDate) {
+    deals.push(mk("exact", `${destination} 왕복 땡처리 특가`, round1000(base * 0.6), addDays(q.departureDate, -1), addDays(q.returnDate, -1)));
+  }
+  return deals;
 }

@@ -92,6 +92,7 @@ export function mapSkyscannerResponse(
       bookingUrl: best.link,
       fetchedAt,
       priceType: "search",
+      sourceType: "api",
       confidence: 0.6,
     });
   }
