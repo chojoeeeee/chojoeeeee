@@ -14,7 +14,7 @@
 | 1 | 프로젝트/DB 스키마/검색 UI/Provider Adapter/가격 비교 + **6개 서비스 전부 조회** | 구현됨 |
 | 1.5 | **실제 Provider 연동 조사·구현** (Skyscanner 완성, FlyAI 옵트인, 근거 기록) | 구현됨 |
 | 1.5b | 캐치프로그·출국의 신 **공개 웹 Deal Provider** 재분류, Skyscanner **자동 호출 금지 정책**, Provider별 스케줄 정책, 결과 화면 2영역 분리 | **구현됨 (승인 대기)** |
-| 2 | Watchlist, 가격 저장, 가격 그래프, Cron/스케줄러, Telegram 알림, 목표가·최저가 갱신 알림 | 미착수 (승인 필요) |
+| 2 | Watchlist, 가격 히스토리·그래프, 정책 기반 Cron, Telegram 알림, 목표가·새 최저가·급락·관련 특가 알림, Deal Score | **구현됨 (승인 대기)** |
 | 3 | 날짜 ±N일 비교, 최저가 캘린더, 실제 Provider 연동(승인 후), 특가 Feed 연동 | 미착수 |
 | 4 | Deal Score, 가격 분석, 여행지 미정 검색, Web Push | 미착수 |
 
@@ -30,9 +30,9 @@
 | 6 | 동일 기준 가격 비교 | ✅ KRW·1인 기준 정규화, 순위·가격차 |
 | 7 | 최저가 자동 계산 | ✅ |
 | 8 | 관련 특가 함께 표시 | ✅ 구조·UI 완료 (실제 특가 소스는 미연결, DEMO로만 확인) |
-| 9 | Watchlist 저장 | ❌ Phase 2 |
-| 10 | 6개 Provider 재조회 | ◐ 화면의 "다시 조회"는 가능, 스케줄러 재조회는 Phase 2 |
-| 11 | 새 최저가 알림 | ❌ Phase 2 |
+| 9 | Watchlist 저장 | ✅ Phase 2 (`/watchlist`) |
+| 10 | 6개 Provider 재조회 | ✅ 검색 화면 "다시 조회", Watchlist "다시 확인"(사용자 호출) + 정책이 허용한 Provider만 백그라운드 |
+| 11 | 새 최저가 알림 | ✅ Phase 2 (Telegram, Dry Run 지원) |
 | 12 | 모바일 사용 | ✅ 390px 뷰포트 확인 (가로 넘침 없음) |
 
 ## 아키텍처
@@ -241,6 +241,87 @@ Watchlist Engine과 Provider Search Engine을 분리한다. Watchlist 쪽은 Pro
 ### DEMO_MODE
 `DEMO_MODE=true`이면 키/승인이 없는 소스가 **DEMO DATA**(`DEMO` 배지)로 채워진다. 실제 키가 설정된 Skyscanner는 DEMO_MODE와 무관하게 실제 호출을 쓴다. 실제 데이터가 하나라도 있으면 데모는 비교에서 제외된다. 운영에서는 `false`.
 
+## Phase 2 — Watchlist · 가격 기록 · 알림
+
+목표: 사용자가 항공권을 저장하고, 가격 변화를 기록하고, **허용된 Provider에서** 목표가 도달·새 최저가·특가가 생기면 알림을 받는다. **6개 Provider를 백그라운드에서 강제로 호출하지 않는다** — 모든 자동 호출은 `ProviderSchedulePolicy`/`planBackgroundRefresh()`를 따른다.
+
+### 흐름
+
+```
+[이 가격 추적하기] → POST /api/watchlists ─ 초기 가격 조회(사용자 행동, 최근 검색 캐시 재사용, 알림 없음)
+                                                │
+ ┌────────────── 사용자 "다시 확인" ──────────────┤  ┌──────── Cron /api/cron/watchlists ────────┐
+ │ trigger = user                                │  │ trigger = background                      │
+ │ 모든 Provider(사용자 검색 허용) 호출            │  │ ① planBackgroundRefresh()가 준 부분만       │
+ │ 60초 throttle                                 │  │ ② 엔진이 정책 재검사 ③ Provider가 재검사     │
+ └───────────────┬───────────────────────────────┘  └───────────────┬───────────────────────────┘
+                 └──── ingestRefresh(): 가격 저장 → 현재가/변화/Deal Score → evaluateAlerts() → NotificationService → Telegram
+```
+
+* **같은 함수**(`ingestRefresh` → `evaluateAlerts`)가 사용자 새로고침과 백그라운드를 모두 처리한다 (`src/features/watchlist/refresh.ts`).
+* **Watchlist Engine ⟂ Provider Search Engine**: 스케줄러는 Provider를 직접 부르지 않고 정책 계획을 받아 `runSources({trigger})`에 넘긴다.
+* **정책 3단계 보호**: ① Scheduler(`planBackgroundRefresh`) ② Engine(`policyViolation` → `policy_skipped`) ③ Provider(`ctx.trigger === "background"` 거부 — Skyscanner/Trip.com/FlyAI/캐치프로그/출국의 신).
+* **허용된 Provider가 0개여도 정상**: Cron은 네트워크 호출 없이 정상 종료(`outcomes: {no_provider: N}`).
+* **나중에 Provider가 승인되면**: 해당 Provider의 정책을 `backgroundPolling = true`, `minimumInterval = 3_600_000`(ms)로 바꾸기만 하면 스케줄러 코드 수정 없이 자동 포함된다. (캐치프로그/출국의 신은 환경변수 `*_BACKGROUND_APPROVED=yes`로 정책이 바뀐다.) `minimumInterval` 단위는 **밀리초**.
+
+### 알림 조건 (Alert Engine: `src/features/alerts/evaluate.ts`)
+
+| 타입 | 조건 | 중복 방지 |
+|---|---|---|
+| `TARGET_REACHED` | 현재가 ≤ 목표가 | **최초 도달 1회**. 가격이 목표가 위로 올라갔다가 다시 내려오면 재무장 |
+| `PRICE_DROP` | 마지막 *알림* 가격(없으면 등록 가격) 대비 **≥ N%(기본 5%) 또는 ≥ 10,000원** 추가 하락 | 쿨다운 |
+| `NEW_LOW` | 이전 기록 최저가보다 낮음(기록이 있어야 함, 같은 값은 아님) | 쿨다운 |
+| `RELATED_DEAL` | 날짜 ±3일·여행기간 ±1일의 특가가 현재 항공권(또는 목표가)보다 저렴 | 특가 ID별 1회, 가격이 기준만큼 더 내려갈 때만 재알림 |
+
+* 한 번의 평가에서 여러 조건이 충족돼도 **메시지는 1개**(조건은 알림 기록에 각각 남음). 특가는 특가별 1개.
+* **쿨다운**: 같은 Watchlist의 같은 *타입* 알림은 기본 **6시간** 내 재발송 금지(`/settings/notifications`에서 변경).
+* 가격 상승·동일 가격은 알림 없음. 발송 실패 시 상태를 갱신하지 않아 다음 평가에서 재시도.
+* 새 가격이 하나도 없는 refresh(모든 Provider 실패)는 알림을 평가하지 않는다.
+* DEMO 등록 가격은 LIVE 가격과 비교하지 않는다(모드 불일치 시 기준에서 제외).
+
+### Deal Score (기본 버전, ML 아님)
+
+목표가 30% · 최근 평균 대비 30%(이전 관측 ≥3개일 때만) · 최근 최저가 근접 20% · 최근 하락 20%. 계산할 수 없는 항목은 제외하고 가중치를 재정규화하되 **근거가 2개 미만이면 점수를 내지 않는다**("판단 불가"). 80↑ 🔥 매우 좋은 가격 · 65–79 👍 좋은 가격 · 40–64 보통 · 40 미만 비싼 편. 관측 3회 미만은 "참고용".
+
+### 현재 가격 · DEMO/LIVE
+
+* 현재가 = 각 Provider의 **최신 조회 중 최저가** 중 가장 싼 값 (일부 Provider만 조회한 백그라운드 실행이 가격 "상승"처럼 보이지 않도록 Provider별 최신값을 이어서 사용). 24시간 지난 값은 "참고 가격".
+* **DEMO와 LIVE는 섞지 않는다**: LIVE 행이 하나라도 있으면 모든 통계·그래프·알림 기준이 LIVE만 쓰고, 없을 때만 DEMO를 쓰며 화면/알림에 `DEMO DATA`를 표시한다. 특가 행(`trigger_type = deal`)은 운임이 아니라서 가격 통계에서 제외.
+
+### DB (Supabase PostgreSQL)
+
+테이블: `watchlists`, `price_history`, `alerts`(알림 상태), `alert_history`, `notification_settings`, `provider_calls`(호출 로그 — 최소 간격 판단·관리자 통계용) + 기존 `users` 등. 모든 테이블에 **RLS를 켜서**(`0001_enable_rls.sql`) Supabase 공개(anon) API로는 접근할 수 없고, 앱은 서버에서만 `DATABASE_URL`로 접속한다. `price_history` 인덱스: `(watchlist_id, fetched_at)`, `(watchlist_id, flight_key, provider, fetched_at)`.
+
+1. Supabase 프로젝트 생성 → Project Settings → Database → **Connection string(Transaction pooler)** 을 `DATABASE_URL`로.
+2. `npm run db:migrate` (또는 `drizzle/0000_*.sql`, `0001_enable_rls.sql`을 SQL Editor에서 순서대로 실행).
+3. `DATABASE_URL`이 없으면 **임시 메모리 저장소**로 동작(재시작 시 초기화, 화면에 경고). 저장소 구현 두 개(`MemoryWatchlistStore`, `DrizzleWatchlistStore`)는 같은 계약 테스트를 통과하며, Postgres 쪽은 실제 마이그레이션을 적용한 PGlite(인프로세스 Postgres)로 검증한다. *실제 Supabase 서버에는 연결해보지 못했다.*
+4. 인증: Supabase Auth는 아직 연결하지 않았다. **개인용 단일 소유자**(`OWNER_USER_ID`) 모델이며 변경 API는 same-origin JSON만 받는다. 외부에 공개 배포한다면 앞단 인증(또는 Supabase Auth)을 붙여야 한다.
+
+### Telegram 연결
+
+1. Telegram에서 `@BotFather` → `/newbot` → 받은 토큰을 `TELEGRAM_BOT_TOKEN`에 설정 (서버 환경변수만, 화면에는 표시되지 않음).
+2. 만든 봇과 대화를 시작(`/start`)한 뒤 `https://api.telegram.org/bot<TOKEN>/getUpdates`에서 `chat.id`를 확인해 `TELEGRAM_CHAT_ID`에 설정.
+3. `/settings/notifications` → **테스트 메시지 보내기**.
+4. 개발/테스트는 `TELEGRAM_DRY_RUN=true` — 전송 없이 서버 로그에 `[telegram:dry-run]`으로 메시지를 출력한다. **테스트는 항상 Dry Run.** DEMO 데이터 알림은 "🧪 DEMO DATA" 머리말과 함께 보내며 링크 버튼은 붙이지 않는다.
+5. 알림 채널은 `NotificationProvider` 인터페이스(`src/lib/notifications/`)라 Email/Web Push/Kakao는 구현체만 추가하면 된다.
+
+### Cron
+
+`vercel.json`이 `/api/cron/watchlists`를 매시간 호출한다(`0 * * * *`; Vercel Hobby는 하루 1회 제한이라 `0 9 * * *` 등으로 바꿔야 할 수 있음). 호출 주기는 **Provider의 minimum interval과 무관한 "깨우는 주기"**일 뿐이며, 실제 호출 여부는 정책이 결정한다.
+
+* `CRON_SECRET`을 환경변수로 설정하면 Vercel이 `Authorization: Bearer <CRON_SECRET>` 헤더를 자동으로 붙인다. 헤더가 없거나 틀리거나 `CRON_SECRET`이 비어 있으면 **401**(fail closed, 상수 시간 비교).
+* 같은 검색 조건(`search_hash`: 출발·도착·날짜·좌석·인원·직항·주변공항)의 Watchlist는 **Provider 검색 1회**로 묶어 결과를 공유한다. 최근 네트워크 호출이 minimum interval보다 새로우면 호출하지 않고 기존 데이터를 재사용한다.
+* Provider 오류/타임아웃(기본 15초)은 `Promise.allSettled`로 격리되어 전체 Job을 실패시키지 않는다.
+* 수동 실행: `curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/watchlists`
+
+### 화면
+
+`/watchlist`(카드 목록: 현재가·목표가·최근 최저가·등록 당시·변화율·마지막 확인·상태, [다시 확인][일시정지][삭제]) · `/watchlist/[id]`(통계, Deal Score, Recharts 그래프 7/30/90일·전체·Provider별 선, 관련 특가, 알림 기록) · `/settings/notifications` · `/admin/watchlists`(개수·활성/정지·오늘 Refresh·알림·최근 오류·Background 가능 Provider 수) · `/admin/providers`(User Search / Background / Minimum Interval / Last User·Background Search / Last Error / Network Calls Today).
+
+### DEMO 테스트 흐름
+
+`DEMO_MODE=true` + `TELEGRAM_DRY_RUN=true`: 검색 → 🔔 이 가격 추적하기(등록 가격 = 현재 DEMO 최저가) → Watchlist 카드의 **🧪 DEMO 가격 하락**(DEMO_MODE 전용; DEMO 가격에만 동작, 10% 하락 가정) → 같은 Alert Engine이 실행 → 목표가에 닿으면 Dry Run Telegram 메시지 1개 → 다시 눌러도 중복 알림 없음.
+
 ## 폴더 구조
 
 ```
@@ -270,8 +351,7 @@ flightradar-kr/
 
 ## DB 구조
 
-`src/lib/db/schema.ts` (Drizzle) → `drizzle/*.sql`. 테이블: `users`, `airports`, `providers`, `searches`, `watchlists`, `flight_offers`, `price_history`, `deals`, `alerts`, `alert_history`, `provider_logs`.
-`price_history`는 `(watchlist_id, fetched_at)`, `(watchlist_id, provider, flight_key, fetched_at)` 인덱스를 가진다. Phase 1에서는 스키마만 설계하며 아직 DB에 연결하지 않는다(검색 캐시는 메모리).
+`src/lib/db/schema.ts`(Drizzle) → `drizzle/*.sql`. 운영 테이블: `users`, `watchlists`, `price_history`, `alerts`, `alert_history`, `notification_settings`, `provider_calls`. (`airports`, `providers`, `searches`, `flight_offers`, `deals`, `provider_logs`는 이후 단계용으로 정의만 있음.) 자세한 설명은 위 "Phase 2 → DB".
 
 ## 환경변수
 
@@ -292,6 +372,6 @@ npm run typecheck && npm run lint && npm test
 2. 응답 → `FlightOffer` 변환은 `mapper.ts`, 원본 타입은 `types.ts`.
 3. `src/providers/registry.ts`에 등록. 나머지 코드는 수정할 필요 없음.
 
-## 앞으로 작성할 항목 (Phase 2+)
+## 남은 작업 (Phase 3+)
 
-API 연결 방법 상세, Telegram 연결, Cron 동작 방식, Vercel 배포 방법.
+날짜 ±N일 비교와 최저가 캘린더, Skyscanner Indicative/Refresh 연동(정책 확인 후), Trip.com Shopping 매퍼(파트너 협약 후), 캐치프로그/출국의 신 HTML 추출기(약관·robots 확인 + 페이지 소스 샘플 후), Supabase Auth, Email/Web Push 알림, Vercel 배포 상세.

@@ -13,7 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const ALLOWED: ProviderSchedulePolicy = { userInitiatedSearch: true, backgroundPolling: true, minimumInterval: 60, policyStatus: "confirmed" };
+const ALLOWED: ProviderSchedulePolicy = { userInitiatedSearch: true, backgroundPolling: true, minimumInterval: 3_600_000, policyStatus: "confirmed" };
 const FORBIDDEN: ProviderSchedulePolicy = { userInitiatedSearch: true, backgroundPolling: false, policyStatus: "confirmed", notes: "no cron" };
 
 describe("Skyscanner policies (Usage Guidelines)", () => {

@@ -73,23 +73,27 @@ export const watchlists = pgTable(
     destination: text("destination").notNull(),
     departureDate: text("departure_date").notNull(),
     returnDate: text("return_date"),
-    flexibleDays: integer("flexible_days").default(0).notNull(),
     adults: integer("adults").default(1).notNull(),
     children: integer("children").default(0).notNull(),
     cabinClass: text("cabin_class").default("economy").notNull(),
     directOnly: boolean("direct_only").default(false).notNull(),
     nearbyAirports: boolean("nearby_airports").default(false).notNull(),
     targetPrice: integer("target_price"),
-    alertOnPriceDrop: boolean("alert_on_price_drop").default(true).notNull(),
-    alertDropPercent: real("alert_drop_percent").default(5).notNull(),
+    alertPriceDropPercent: real("alert_price_drop_percent").default(5).notNull(),
     alertNewLow: boolean("alert_new_low").default(true).notNull(),
-    notificationChannel: text("notification_channel", { enum: ["telegram", "email", "web_push"] }).default("telegram").notNull(),
+    notificationChannel: text("notification_channel", { enum: ["telegram"] }).default("telegram").notNull(),
     enabled: boolean("enabled").default(true).notNull(),
+    /** Hash of the normalised search; watchlists with the same hash share one provider search. */
+    searchHash: text("search_hash").notNull(),
+    /** Price when the watchlist was created ("등록 당시"), and whether it was DEMO data. */
+    registeredPrice: integer("registered_price"),
+    registeredIsDemo: boolean("registered_is_demo").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastUserRefreshAt: timestamp("last_user_refresh_at", { withTimezone: true }),
+    lastBackgroundRefreshAt: timestamp("last_background_refresh_at", { withTimezone: true }),
   },
-  (t) => [index("watchlists_user_idx").on(t.userId), index("watchlists_enabled_checked_idx").on(t.enabled, t.lastCheckedAt)],
+  (t) => [index("watchlists_user_idx").on(t.userId), index("watchlists_enabled_idx").on(t.enabled), index("watchlists_search_hash_idx").on(t.searchHash)],
 );
 
 export const flightOffers = pgTable(
@@ -112,19 +116,25 @@ export const flightOffers = pgTable(
   (t) => [index("flight_offers_search_idx").on(t.searchId), index("flight_offers_key_idx").on(t.flightKey, t.provider)],
 );
 
+/** One row per (refresh run, provider, flight/deal). `source_type = 'demo'` rows are never mixed with real ones. */
 export const priceHistory = pgTable(
   "price_history",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     watchlistId: uuid("watchlist_id").references(() => watchlists.id, { onDelete: "cascade" }).notNull(),
+    /** Groups the rows written by one refresh. */
+    runId: text("run_id").notNull(),
     provider: text("provider").notNull(),
+    sourceType: text("source_type", { enum: ["api", "affiliate", "public_web", "demo"] }).notNull(),
+    flightKey: text("flight_key").notNull(),
+    /** Per-person price. */
     price: integer("price").notNull(),
     currency: text("currency").default("KRW").notNull(),
     airline: text("airline"),
-    flightKey: text("flight_key").notNull(),
     departureAt: timestamp("departure_at", { withTimezone: true }),
     returnAt: timestamp("return_at", { withTimezone: true }),
-    isDemo: boolean("is_demo").default(false).notNull(),
+    bookingUrl: text("booking_url"),
+    triggerType: text("trigger_type", { enum: ["user", "background", "deal"] }).notNull(),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
   },
   (t) => [
@@ -157,15 +167,21 @@ export const deals = pgTable(
   (t) => [index("deals_published_idx").on(t.publishedAt), index("deals_destination_idx").on(t.destination)],
 );
 
+/** Per-watchlist alert state (what was last notified), used for de-duplication and cooldown. */
 export const alerts = pgTable(
   "alerts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     watchlistId: uuid("watchlist_id").references(() => watchlists.id, { onDelete: "cascade" }).notNull(),
     lastNotifiedPrice: integer("last_notified_price"),
+    lastNotifiedIsDemo: boolean("last_notified_is_demo").default(false).notNull(),
     lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
-    minDropPercent: real("min_drop_percent").default(5).notNull(),
-    minDropAmount: integer("min_drop_amount").default(10000).notNull(),
+    /** True while the target was already notified and the price has not gone back above it. */
+    targetActive: boolean("target_active").default(false).notNull(),
+    /** { TARGET_REACHED: iso, PRICE_DROP: iso, ... } — cooldown per alert type. */
+    lastByType: jsonb("last_by_type").$type<Record<string, string>>().default({}).notNull(),
+    /** { [dealId]: { price, at } } — related deals already notified. */
+    notifiedDeals: jsonb("notified_deals").$type<Record<string, { price: number; at: string }>>().default({}).notNull(),
   },
   (t) => [uniqueIndex("alerts_watchlist_unique").on(t.watchlistId)],
 );
@@ -174,15 +190,54 @@ export const alertHistory = pgTable(
   "alert_history",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
-    channel: text("channel").notNull(),
-    price: integer("price").notNull(),
-    reason: text("reason").notNull(), // target_reached | price_drop | new_low
-    delivered: boolean("delivered").default(false).notNull(),
-    error: text("error"),
+    watchlistId: uuid("watchlist_id").references(() => watchlists.id, { onDelete: "cascade" }).notNull(),
+    alertType: text("alert_type", { enum: ["TARGET_REACHED", "PRICE_DROP", "NEW_LOW", "RELATED_DEAL"] }).notNull(),
+    provider: text("provider"),
+    oldPrice: integer("old_price"),
+    newPrice: integer("new_price"),
+    isDemo: boolean("is_demo").default(false).notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+    status: text("status", { enum: ["sent", "dry_run", "failed"] }).notNull(),
+    channel: text("channel").notNull(),
+    error: text("error"),
   },
-  (t) => [index("alert_history_alert_sent_idx").on(t.alertId, t.sentAt)],
+  (t) => [index("alert_history_watchlist_sent_idx").on(t.watchlistId, t.sentAt), index("alert_history_sent_idx").on(t.sentAt)],
+);
+
+export const notificationSettings = pgTable("notification_settings", {
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).primaryKey(),
+  enabled: boolean("enabled").default(true).notNull(),
+  targetAlerts: boolean("target_alerts").default(true).notNull(),
+  newLowAlerts: boolean("new_low_alerts").default(true).notNull(),
+  priceDropAlerts: boolean("price_drop_alerts").default(true).notNull(),
+  relatedDealAlerts: boolean("related_deal_alerts").default(true).notNull(),
+  cooldownHours: integer("cooldown_hours").default(6).notNull(),
+  /** Absolute drop (KRW) that counts as "further drop" besides the percentage. */
+  minDropAmount: integer("min_drop_amount").default(10000).notNull(),
+  telegramChatId: text("telegram_chat_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * One row per provider part per refresh attempt. Drives minimum-interval checks
+ * (reuse instead of re-calling), and the admin's call counts / last errors.
+ * `network` = a real outbound request was made (false for demo / manual / skipped).
+ */
+export const providerCalls = pgTable(
+  "provider_calls",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    searchHash: text("search_hash").notNull(),
+    provider: text("provider").notNull(),
+    part: text("part", { enum: ["flight", "deal"] }).notNull(),
+    triggerType: text("trigger_type", { enum: ["user", "background"] }).notNull(),
+    calledAt: timestamp("called_at", { withTimezone: true }).notNull(),
+    status: text("status").notNull(),
+    resultCount: integer("result_count").default(0).notNull(),
+    network: boolean("network").default(false).notNull(),
+    error: text("error"),
+  },
+  (t) => [index("provider_calls_hash_provider_idx").on(t.searchHash, t.provider, t.part, t.calledAt), index("provider_calls_called_idx").on(t.calledAt)],
 );
 
 /** Never store API keys or personal data here. */

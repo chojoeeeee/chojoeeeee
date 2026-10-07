@@ -25,7 +25,7 @@ export interface ProviderSchedulePolicy {
   userInitiatedSearch: boolean;
   /** May be called by a scheduler/cron without a user action. */
   backgroundPolling: boolean;
-  /** Minimum minutes between background calls for the same query (when background is allowed). */
+  /** Minimum MILLISECONDS between calls for the same query (e.g. 3_600_000 = 1 hour). Applies to background polling. */
   minimumInterval?: number;
   /** "confirmed" = backed by the provider's published terms; "unverified" = not yet checked. */
   policyStatus: "confirmed" | "unverified";

@@ -23,7 +23,7 @@ export function catchfrogPolicy(): ProviderSchedulePolicy {
   return {
     userInitiatedSearch: approved,
     backgroundPolling: approved && env("CATCHFROG_BACKGROUND_APPROVED") === "yes",
-    minimumInterval: 60,
+    minimumInterval: 3_600_000,
     policyStatus: "unverified",
     notes: "약관·robots.txt 확인 전 자동 수집 금지. 공개 페이지는 캐시해 최소 60분 간격.",
   };
@@ -59,7 +59,7 @@ export class CatchfrogDealProvider implements DealProvider {
       if (demoEnabled()) return generateDemoDeals(query, NAME, "catchfrog");
       throw new ProviderUnavailableError(NAME, "manual_check", BLOCKED);
     }
-    const html = await fetchPublicHtml({ provider: NAME, url: CATCHFROG_URL, signal: ctx?.signal, fetchImpl: this.fetchImpl, cacheTtlMs: (policy.minimumInterval ?? 60) * 60_000 });
+    const html = await fetchPublicHtml({ provider: NAME, url: CATCHFROG_URL, signal: ctx?.signal, fetchImpl: this.fetchImpl, cacheTtlMs: policy.minimumInterval ?? 3_600_000 });
     const discoveredAt = new Date().toISOString();
     return parseCatchfrogRaw(this.extract(html), discoveredAt, CATCHFROG_URL).map(catchfrogToTravelDeal);
   }

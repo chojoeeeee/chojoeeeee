@@ -2,7 +2,7 @@ import "server-only";
 import { env } from "@/lib/env";
 import type { FlightOffer, FlightSearchQuery, ProviderHealth } from "@/types/domain";
 import { demoEnabled } from "../demo-mode";
-import { ProviderUnavailableError, type FlightProvider, type ProviderSchedulePolicy } from "../types";
+import { ProviderUnavailableError, type FlightProvider, type ProviderSchedulePolicy, type SearchContext } from "../types";
 import { generateDemoOffers } from "../mock/generator";
 
 /**
@@ -30,7 +30,8 @@ export class TripProvider implements FlightProvider {
     return this.mode() === "mock" && demoEnabled();
   }
 
-  async searchFlights(query: FlightSearchQuery): Promise<FlightOffer[]> {
+  async searchFlights(query: FlightSearchQuery, ctx?: SearchContext): Promise<FlightOffer[]> {
+    if (ctx?.trigger === "background") throw new ProviderUnavailableError(this.name, "unavailable", "Trip.com 백그라운드 호출은 협약 조건 확인 전까지 허용되지 않습니다.");
     if (this.mode() === "mock" && demoEnabled()) return generateDemoOffers(query, { provider: this.name, bias: 1.0 });
     if (this.mode() === "live" && env("TRIP_APP_KEY") && env("TRIP_APP_SECRET")) {
       // Credentials exist, but the Shopping Offer request/response schema has not been read yet

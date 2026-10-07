@@ -9,6 +9,7 @@ import type { FlightSearchRequest } from "@/types/domain";
 import { DemoBadge } from "./DemoBadge";
 import { OfferCard } from "./OfferCard";
 import { SavingsBanner } from "./RelatedDeals";
+import { TrackForm } from "./TrackForm";
 import { SourceProgress } from "./SourceProgress";
 import { SourceRows } from "./SourceRows";
 
@@ -109,6 +110,8 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
       )}
 
       {result.savingsTip && <SavingsBanner tip={result.savingsTip} names={names} />}
+
+      <TrackForm request={request} cheapest={cheapest ? { price: cheapest.pricePerPerson, isDemo: cheapest.isDemo } : undefined} />
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">

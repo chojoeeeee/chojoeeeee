@@ -1,5 +1,5 @@
 {
-  "id": "2e0703b4-deca-4dad-908d-4797c8b9f0f6",
+  "id": "f81ab721-221f-4bae-8c4d-2b07f89792ba",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -64,9 +64,53 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "alert_id": {
-          "name": "alert_id",
+        "watchlist_id": {
+          "name": "watchlist_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_type": {
+          "name": "alert_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "old_price": {
+          "name": "old_price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "new_price": {
+          "name": "new_price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_demo": {
+          "name": "is_demo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -76,45 +120,19 @@
           "primaryKey": false,
           "notNull": true
         },
-        "price": {
-          "name": "price",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "delivered": {
-          "name": "delivered",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "error": {
           "name": "error",
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
       "indexes": {
-        "alert_history_alert_sent_idx": {
-          "name": "alert_history_alert_sent_idx",
+        "alert_history_watchlist_sent_idx": {
+          "name": "alert_history_watchlist_sent_idx",
           "columns": [
             {
-              "expression": "alert_id",
+              "expression": "watchlist_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -130,15 +148,30 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "alert_history_sent_idx": {
+          "name": "alert_history_sent_idx",
+          "columns": [
+            {
+              "expression": "sent_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "alert_history_alert_id_alerts_id_fk": {
-          "name": "alert_history_alert_id_alerts_id_fk",
+        "alert_history_watchlist_id_watchlists_id_fk": {
+          "name": "alert_history_watchlist_id_watchlists_id_fk",
           "tableFrom": "alert_history",
-          "tableTo": "alerts",
+          "tableTo": "watchlists",
           "columnsFrom": [
-            "alert_id"
+            "watchlist_id"
           ],
           "columnsTo": [
             "id"
@@ -176,25 +209,39 @@
           "primaryKey": false,
           "notNull": false
         },
+        "last_notified_is_demo": {
+          "name": "last_notified_is_demo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "last_notified_at": {
           "name": "last_notified_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
-        "min_drop_percent": {
-          "name": "min_drop_percent",
-          "type": "real",
+        "target_active": {
+          "name": "target_active",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": 5
+          "default": false
         },
-        "min_drop_amount": {
-          "name": "min_drop_amount",
-          "type": "integer",
+        "last_by_type": {
+          "name": "last_by_type",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": 10000
+          "default": "'{}'::jsonb"
+        },
+        "notified_deals": {
+          "name": "notified_deals",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         }
       },
       "indexes": {
@@ -528,6 +575,101 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.notification_settings": {
+      "name": "notification_settings",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "target_alerts": {
+          "name": "target_alerts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "new_low_alerts": {
+          "name": "new_low_alerts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "price_drop_alerts": {
+          "name": "price_drop_alerts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "related_deal_alerts": {
+          "name": "related_deal_alerts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "cooldown_hours": {
+          "name": "cooldown_hours",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 6
+        },
+        "min_drop_amount": {
+          "name": "min_drop_amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 10000
+        },
+        "telegram_chat_id": {
+          "name": "telegram_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "notification_settings_user_id_users_id_fk": {
+          "name": "notification_settings_user_id_users_id_fk",
+          "tableFrom": "notification_settings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.price_history": {
       "name": "price_history",
       "schema": "",
@@ -545,8 +687,26 @@
           "primaryKey": false,
           "notNull": true
         },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "provider": {
           "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "flight_key": {
+          "name": "flight_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -570,12 +730,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "flight_key": {
-          "name": "flight_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "departure_at": {
           "name": "departure_at",
           "type": "timestamp with time zone",
@@ -588,12 +742,17 @@
           "primaryKey": false,
           "notNull": false
         },
-        "is_demo": {
-          "name": "is_demo",
-          "type": "boolean",
+        "booking_url": {
+          "name": "booking_url",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": false
+          "notNull": false
+        },
+        "trigger_type": {
+          "name": "trigger_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "fetched_at": {
           "name": "fetched_at",
@@ -673,6 +832,131 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_calls": {
+      "name": "provider_calls",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "search_hash": {
+          "name": "search_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "part": {
+          "name": "part",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_type": {
+          "name": "trigger_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "called_at": {
+          "name": "called_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result_count": {
+          "name": "result_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "network": {
+          "name": "network",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "provider_calls_hash_provider_idx": {
+          "name": "provider_calls_hash_provider_idx",
+          "columns": [
+            {
+              "expression": "search_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "part",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "called_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_calls_called_idx": {
+          "name": "provider_calls_called_idx",
+          "columns": [
+            {
+              "expression": "called_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1012,13 +1296,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "flexible_days": {
-          "name": "flexible_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "adults": {
           "name": "adults",
           "type": "integer",
@@ -1060,15 +1337,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "alert_on_price_drop": {
-          "name": "alert_on_price_drop",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "alert_drop_percent": {
-          "name": "alert_drop_percent",
+        "alert_price_drop_percent": {
+          "name": "alert_price_drop_percent",
           "type": "real",
           "primaryKey": false,
           "notNull": true,
@@ -1095,6 +1365,25 @@
           "notNull": true,
           "default": true
         },
+        "search_hash": {
+          "name": "search_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registered_price": {
+          "name": "registered_price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registered_is_demo": {
+          "name": "registered_is_demo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1109,8 +1398,14 @@
           "notNull": true,
           "default": "now()"
         },
-        "last_checked_at": {
-          "name": "last_checked_at",
+        "last_user_refresh_at": {
+          "name": "last_user_refresh_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_background_refresh_at": {
+          "name": "last_background_refresh_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -1132,17 +1427,26 @@
           "method": "btree",
           "with": {}
         },
-        "watchlists_enabled_checked_idx": {
-          "name": "watchlists_enabled_checked_idx",
+        "watchlists_enabled_idx": {
+          "name": "watchlists_enabled_idx",
           "columns": [
             {
               "expression": "enabled",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
-            },
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "watchlists_search_hash_idx": {
+          "name": "watchlists_search_hash_idx",
+          "columns": [
             {
-              "expression": "last_checked_at",
+              "expression": "search_hash",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

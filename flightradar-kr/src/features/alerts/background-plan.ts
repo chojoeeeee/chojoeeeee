@@ -54,8 +54,8 @@ export function planBackgroundRefresh(
       }
       const last = opts.lastCalledAt?.[`${s.name}:${part}`];
       const interval = policy?.minimumInterval;
-      if (last && interval && opts.now.getTime() - Date.parse(last) < interval * 60_000) {
-        skipped.push({ provider: s.name, part, reason: `최소 호출 간격 ${interval}분이 지나지 않았습니다.`, kind: "not_due" });
+      if (last && interval && opts.now.getTime() - Date.parse(last) < interval) {
+        skipped.push({ provider: s.name, part, reason: `최소 호출 간격 ${Math.round(interval / 60_000)}분이 지나지 않았습니다.`, kind: "not_due" });
         continue;
       }
       calls.push({ provider: s.name, part });

@@ -23,6 +23,15 @@ export type SourceStatus =
   | "error"
   | "policy_skipped"; // a background call the provider's terms do not allow
 
+/** What happened to one part (flight search / deal feed) of a source in a run. */
+export interface PartOutcome {
+  attempted: boolean;
+  /** Not called because the provider's schedule policy forbids this trigger. */
+  skipped: boolean;
+  failed: boolean;
+  count: number;
+}
+
 export interface SourceRun {
   provider: string;
   displayName: string;
@@ -43,6 +52,8 @@ export interface SourceRun {
   cached: boolean;
   /** ISO time the attempt started. */
   lastAttemptAt: string;
+  /** Per-part outcome (undefined = the source has no such part). */
+  parts?: { flight?: PartOutcome; deal?: PartOutcome };
 }
 
 /** JSON-serialisable result of querying one source (what /api/search/source returns). */

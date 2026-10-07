@@ -19,7 +19,7 @@ export function godflightPolicy(): ProviderSchedulePolicy {
   return {
     userInitiatedSearch: approved,
     backgroundPolling: approved && env("GODFLIGHT_BACKGROUND_APPROVED") === "yes",
-    minimumInterval: 60,
+    minimumInterval: 3_600_000,
     policyStatus: "unverified",
     notes: "약관·robots.txt 확인 전 자동 수집 금지. 출발 7일 이내 목록이라 갱신이 잦을 수 있으나 최소 60분 간격으로 제한.",
   };
@@ -56,7 +56,7 @@ export class GodFlightDealProvider implements DealProvider {
       if (demoEnabled()) return generateDemoDeals(query, NAME, "godflight");
       throw new ProviderUnavailableError(NAME, "manual_check", BLOCKED);
     }
-    const html = await fetchPublicHtml({ provider: NAME, url: GODFLIGHT_URL, signal: ctx?.signal, fetchImpl: this.fetchImpl, cacheTtlMs: (policy.minimumInterval ?? 60) * 60_000 });
+    const html = await fetchPublicHtml({ provider: NAME, url: GODFLIGHT_URL, signal: ctx?.signal, fetchImpl: this.fetchImpl, cacheTtlMs: policy.minimumInterval ?? 3_600_000 });
     const now = this.now();
     // Kept as-is: matching against the user's route/dates happens in the deal engine, not here.
     return godflightToTravelDeals(this.extract(html), now.toISOString(), GODFLIGHT_URL, now.toISOString().slice(0, 10));

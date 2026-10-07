@@ -1,4 +1,7 @@
 import { CHECKED_AT, SOURCE_PROFILES, type Support } from "@/config/source-profiles";
+import { summarizeProviderCalls } from "@/features/watchlist/admin-stats";
+import { getStore } from "@/features/watchlist/service";
+import { kstDayStart, timeAgo } from "@/lib/format";
 import { getSources } from "@/providers/sources";
 import { DEFAULT_SCHEDULE_POLICY, type ProviderSchedulePolicy } from "@/providers/types";
 import type { ProviderHealth } from "@/types/domain";
@@ -27,6 +30,8 @@ async function safeHealth(name: string, fn?: () => Promise<ProviderHealth>): Pro
 }
 
 export default async function ProvidersPage() {
+  const now = new Date();
+  const calls = summarizeProviderCalls(await getStore().listProviderCalls({ since: new Date(now.getTime() - 30 * 86_400_000).toISOString() }), kstDayStart(now));
   const rows = await Promise.all(
     getSources().map(async (s) => ({
       source: s,
@@ -56,7 +61,7 @@ export default async function ProvidersPage() {
               return (
                 <p key={String(label)} className="text-xs text-muted">
                   호출 정책({String(label)}): 사용자 검색 {p.userInitiatedSearch ? "✓" : "✗"} · 백그라운드 {p.backgroundPolling ? "✓" : "✗"}
-                  {p.minimumInterval ? ` · 최소 ${p.minimumInterval}분 간격` : ""} · {p.policyStatus === "confirmed" ? "근거 확인됨" : "미확인(보수적 적용)"}
+                  {p.minimumInterval ? ` · 최소 ${Math.round(p.minimumInterval / 60_000)}분 간격` : ""} · {p.policyStatus === "confirmed" ? "근거 확인됨" : "미확인(보수적 적용)"}
                   {p.notes && ` — ${p.notes}`}
                 </p>
               );
@@ -66,6 +71,24 @@ export default async function ProvidersPage() {
                 공식 API {SUPPORT[profile.officialApi]} · 파트너 API {SUPPORT[profile.partnerApi]} · 공개 웹 {SUPPORT[profile.publicWeb]} · 유형 {profile.serviceType.join("/")}
               </p>
             )}
+            {(() => {
+              const c = calls[source.name];
+              const pols = [source.flight?.schedulePolicy?.() ?? (source.flight ? DEFAULT_SCHEDULE_POLICY : undefined), source.deal?.schedulePolicy?.() ?? (source.deal ? DEFAULT_SCHEDULE_POLICY : undefined)].filter((x): x is ProviderSchedulePolicy => Boolean(x));
+              const user = pols.some((p) => p.userInitiatedSearch);
+              const bg = pols.some((p) => p.backgroundPolling);
+              const interval = pols.map((p) => p.minimumInterval).find((x) => x !== undefined);
+              return (
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 rounded-lg bg-slate-50 p-2 text-[11px] text-muted sm:grid-cols-4">
+                  <div><dt>User Search</dt><dd className="font-semibold text-fg">{user ? "허용" : "불가"}</dd></div>
+                  <div><dt>Background</dt><dd className="font-semibold text-fg">{bg ? "허용" : "금지"}</dd></div>
+                  <div><dt>Minimum Interval</dt><dd className="font-semibold text-fg">{interval ? `${Math.round(interval / 60_000)}분` : "-"}</dd></div>
+                  <div><dt>Network Calls Today</dt><dd className="font-semibold text-fg">{c?.networkCallsToday ?? 0}</dd></div>
+                  <div><dt>Last User Search</dt><dd className="font-semibold text-fg">{timeAgo(c?.lastUserSearchAt, now.getTime())}</dd></div>
+                  <div><dt>Last Background Search</dt><dd className="font-semibold text-fg">{timeAgo(c?.lastBackgroundSearchAt, now.getTime())}</dd></div>
+                  <div className="col-span-2"><dt>Last Error</dt><dd className="font-semibold text-fg">{c?.lastError ? `${timeAgo(c.lastError.at, now.getTime())} · ${c.lastError.message.slice(0, 80)}` : "없음"}</dd></div>
+                </dl>
+              );
+            })()}
             {profile && <p className="text-xs text-muted">자동 조회: {profile.scheduleSummary}</p>}
             {profile && <p className="text-xs text-muted">다음 단계: {profile.nextStep}</p>}
             {profile?.publicDataChecklist && (

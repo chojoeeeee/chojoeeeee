@@ -5,7 +5,7 @@ import type { DealQuery, FlightOffer, FlightSearchQuery, FlightSearchRequest, Tr
 import { createMemoryCache, type SearchCache } from "./cache";
 import { searchHash } from "./hash";
 import { normalizeOffers, type FxRates } from "./normalize";
-import { assembleResult, makeRun, type SearchResult, type SourceResult, type SourceRun, type SourceStatus } from "./result";
+import { assembleResult, makeRun, type PartOutcome, type SearchResult, type SourceResult, type SourceRun, type SourceStatus } from "./result";
 
 export type { SearchResult, SourceResult, SourceRow, SourceRun, SourceStatus } from "./result";
 
@@ -190,11 +190,14 @@ export async function runSource(source: SourceProvider, request: FlightSearchReq
     });
     // Demo-ness is a property of the data actually returned, not of the adapter.
     const isDemo = f.items.some((o) => o.isDemo) || d.items.some((x) => x.isDemo);
+    const outcome = (p: Part<unknown>): PartOutcome | undefined =>
+      p.attempted || p.skippedReason ? { attempted: p.attempted, skipped: Boolean(p.skippedReason), failed: p.failure !== undefined, count: p.items.length } : undefined;
     return {
       run: makeRunFor(source, request, {
         status,
         reason,
         isDemo,
+        parts: { flight: source.flight ? outcome(f) : undefined, deal: source.deal ? outcome(d) : undefined },
         flightCount: f.items.length,
         dealCount: d.items.length,
         elapsedMs,
@@ -209,14 +212,18 @@ export async function runSource(source: SourceProvider, request: FlightSearchReq
   }
 }
 
-/** Queries ALL sources in parallel. One failing source never affects the others. */
-export async function runSearch(request: FlightSearchRequest, deps: EngineDeps): Promise<SearchResult> {
+/** Queries ALL given sources in parallel and returns each one's raw result. One failing source never affects the others. */
+export async function runSources(request: FlightSearchRequest, deps: EngineDeps): Promise<SourceResult[]> {
   const settled = await Promise.allSettled(deps.sources.map((s) => runSource(s, request, deps)));
-  const results = settled.map((s, i): SourceResult => {
+  return settled.map((s, i): SourceResult => {
     if (s.status === "fulfilled") return s.value;
     return { run: makeRunFor(deps.sources[i]!, request, { status: "error", reason: "일시적인 오류로 조회하지 못했습니다." }), offers: [], deals: [] };
   });
-  return assembleResult(request, results, { fxRates: deps.fxRates, now: deps.now });
+}
+
+/** Queries ALL sources in parallel and assembles the comparison shown to the user. */
+export async function runSearch(request: FlightSearchRequest, deps: EngineDeps): Promise<SearchResult> {
+  return assembleResult(request, await runSources(request, deps), { fxRates: deps.fxRates, now: deps.now });
 }
 
 let sharedCache: SearchCache<FlightOffer[]> | undefined;
