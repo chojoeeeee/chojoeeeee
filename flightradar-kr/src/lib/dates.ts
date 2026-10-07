@@ -22,3 +22,8 @@ export function monthBounds(date: string): { start: string; end: string } {
   const m = d.getUTCMonth();
   return { start: fmt(Date.UTC(y, m, 1)), end: fmt(Date.UTC(y, m + 1, 0)) };
 }
+
+/** Today's date in Korea (YYYY-MM-DD). */
+export function todayKst(now: number = Date.now()): string {
+  return fmt(now + 9 * 3_600_000);
+}

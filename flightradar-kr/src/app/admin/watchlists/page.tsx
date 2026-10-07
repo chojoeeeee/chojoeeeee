@@ -2,6 +2,8 @@ import { planBackgroundRefresh } from "@/features/alerts/background-plan";
 import { adminStats } from "@/features/watchlist/admin-stats";
 import { sourceNames, storeKind } from "@/features/watchlist/page-data";
 import { getStore, telegramStatus } from "@/features/watchlist/service";
+import { DemoDropButton } from "@/components/DemoDropButton";
+import { isDemoMode } from "@/features/watchlist/page-data";
 import { kstDayStart, timeAgo } from "@/lib/format";
 import { getSources } from "@/providers/sources";
 
@@ -66,6 +68,7 @@ export default async function AdminWatchlists() {
           {watchlists.map((w) => (
             <li key={w.id} className="px-4 py-2">
               {w.origin}→{w.destination} {w.departureDate}~{w.returnDate ?? "편도"} · {w.enabled ? "활성" : "일시정지"} · 사용자 확인 {timeAgo(w.lastUserRefreshAt, now.getTime())} · 자동 확인 {timeAgo(w.lastBackgroundRefreshAt, now.getTime())}
+              {isDemoMode() && <span className="ml-2"><DemoDropButton id={w.id} /></span>}
             </li>
           ))}
         </ul>

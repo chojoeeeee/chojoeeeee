@@ -36,9 +36,9 @@ export function PriceChart({ chart, now }: { chart: ChartData; now: number }) {
   const data = useMemo(() => (days === undefined ? chart.data : chart.data.filter((p) => now - p.t <= days * 86_400_000)), [chart.data, days, now]);
 
   return (
-    <section className="space-y-2 rounded-2xl border border-line bg-card p-4" aria-label="가격 변화 그래프">
+    <section className="space-y-2 rounded-2xl border border-line bg-white p-4" aria-label="가격 변화 그래프">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">가격 변화{chart.isDemo && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">DEMO DATA</span>}</h2>
+        <h2 className="text-sm font-semibold">가격 변화{chart.isDemo && <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">테스트 데이터</span>}</h2>
         <div className="flex gap-1" role="group" aria-label="기간">
           {RANGES.map((r) => (
             <button key={r.key} onClick={() => setRange(r.key)} aria-pressed={r.key === range} className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-xs ${r.key === range ? "border-brand bg-brand text-white" : "border-line"}`}>
@@ -65,7 +65,7 @@ export function PriceChart({ chart, now }: { chart: ChartData; now: number }) {
           </ResponsiveContainer>
         </div>
       )}
-      <p className="text-[11px] text-muted">Provider별 최저가를 따로 보여줘요. 값은 1인 기준입니다.</p>
+      <p className="text-[11px] text-muted">서비스별 1인 최저가예요.</p>
     </section>
   );
 }

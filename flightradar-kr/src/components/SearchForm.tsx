@@ -3,11 +3,21 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-const field = "w-full rounded-lg border border-line bg-white px-3 py-2 text-sm";
+const ORIGINS: [string, string][] = [["ICN", "서울 (인천)"], ["GMP", "서울 (김포)"], ["PUS", "부산"], ["TAE", "대구"]];
+const DESTINATIONS: [string, string][] = [["NRT", "도쿄 (나리타)"], ["HND", "도쿄 (하네다)"], ["KIX", "오사카"], ["FUK", "후쿠오카"]];
 
-export function SearchForm({ initial }: { initial?: Record<string, string> }) {
+const label = "mb-1 block text-xs font-medium text-muted";
+const control = "h-12 w-full rounded-xl border border-line bg-white px-3 text-base";
+
+function withExtra(list: [string, string][], code?: string): [string, string][] {
+  return code && !list.some(([c]) => c === code) ? [...list, [code, code]] : list;
+}
+
+export function SearchForm({ defaults, initial }: { defaults: { departureDate: string; returnDate: string; today: string }; initial?: Record<string, string> }) {
   const router = useRouter();
   const [error, setError] = useState<string>();
+  const [direct, setDirect] = useState(initial?.directOnly === "true");
+  const [flex, setFlex] = useState(Number(initial?.flex ?? 0) > 0);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -17,54 +27,49 @@ export function SearchForm({ initial }: { initial?: Record<string, string> }) {
     if (!departureDate) return setError("가는 날을 선택해주세요.");
     if (returnDate && returnDate < departureDate) return setError("오는 날은 가는 날 이후여야 해요.");
     setError(undefined);
-
-    const q = new URLSearchParams();
-    q.set("origin", String(fd.get("origin")).toUpperCase());
-    q.set("destination", String(fd.get("destination")).toUpperCase());
-    q.set("departureDate", departureDate);
+    const q = new URLSearchParams({ origin: String(fd.get("origin")), destination: String(fd.get("destination")), departureDate, adults: String(fd.get("adults")), children: "0", cabinClass: "economy" });
     if (returnDate) q.set("returnDate", returnDate);
-    q.set("adults", String(fd.get("adults")));
-    q.set("children", "0");
-    q.set("cabinClass", String(fd.get("cabinClass")));
-    if (fd.get("nearby")) q.set("nearby", "true");
-    if (fd.get("directOnly")) q.set("directOnly", "true");
+    if (direct) q.set("directOnly", "true");
+    if (flex) q.set("flex", "3");
     router.push(`/search?${q.toString()}`);
   }
 
+  const chip = (on: boolean) => `flex h-11 flex-1 items-center justify-center rounded-xl border text-sm font-semibold ${on ? "border-brand bg-brand-soft text-brand" : "border-line text-muted"}`;
+
   return (
-    <form onSubmit={onSubmit} className="space-y-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
+    <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <label className="text-xs text-muted">출발지 (공항 코드)
-          <input name="origin" defaultValue={initial?.origin ?? "ICN"} required maxLength={3} className={field} />
-        </label>
-        <label className="text-xs text-muted">도착지 (공항 코드)
-          <input name="destination" defaultValue={initial?.destination ?? "NRT"} required maxLength={3} className={field} />
-        </label>
-        <label className="text-xs text-muted">가는 날
-          <input type="date" name="departureDate" defaultValue={initial?.departureDate ?? "2026-11-12"} required className={field} />
-        </label>
-        <label className="text-xs text-muted">오는 날
-          <input type="date" name="returnDate" defaultValue={initial?.returnDate ?? "2026-11-15"} className={field} />
-        </label>
-        <label className="text-xs text-muted">인원 (성인)
-          <input type="number" name="adults" min={1} max={9} defaultValue={initial?.adults ?? "2"} className={field} />
-        </label>
-        <label className="text-xs text-muted">좌석
-          <select name="cabinClass" defaultValue={initial?.cabinClass ?? "economy"} className={field}>
-            <option value="economy">이코노미</option>
-            <option value="premium_economy">프리미엄 이코노미</option>
-            <option value="business">비즈니스</option>
-            <option value="first">일등석</option>
+        <label><span className={label}>출발지</span>
+          <select name="origin" defaultValue={initial?.origin ?? "ICN"} className={control}>
+            {withExtra(ORIGINS, initial?.origin).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
         </label>
+        <label><span className={label}>도착지</span>
+          <select name="destination" defaultValue={initial?.destination ?? "NRT"} className={control}>
+            {withExtra(DESTINATIONS, initial?.destination).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+          </select>
+        </label>
+        <label><span className={label}>출국일</span>
+          <input type="date" name="departureDate" min={defaults.today} defaultValue={initial?.departureDate ?? defaults.departureDate} required className={control} />
+        </label>
+        <label><span className={label}>귀국일</span>
+          <input type="date" name="returnDate" min={defaults.today} defaultValue={initial?.returnDate ?? defaults.returnDate} className={control} />
+        </label>
       </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-        <label className="flex items-center gap-1.5"><input type="checkbox" name="nearby" defaultChecked={initial?.nearby === "true"} /> 주변 공항 포함</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" name="directOnly" defaultChecked={initial?.directOnly === "true"} /> 직항만</label>
-        <label className="flex items-center gap-1.5 text-muted" title="Phase 3에서 제공됩니다"><input type="checkbox" disabled /> 날짜 ±3일 (준비 중)</label>
+
+      <label className="block"><span className={label}>인원</span>
+        <select name="adults" defaultValue={initial?.adults ?? "1"} className={control}>
+          {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>성인 {n}명</option>)}
+        </select>
+      </label>
+
+      <div className="flex gap-2">
+        <button type="button" aria-pressed={direct} onClick={() => setDirect(!direct)} className={chip(direct)}>{direct ? "✓ " : ""}직항만</button>
+        <button type="button" aria-pressed={flex} onClick={() => setFlex(!flex)} className={chip(flex)}>{flex ? "✓ " : ""}날짜 ±3일도 비교</button>
       </div>
+
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      <button type="submit" className="w-full rounded-xl bg-brand py-3 font-semibold text-white">6개 사이트 최저가 찾기</button>
+      <button type="submit" className="h-14 w-full rounded-2xl bg-brand text-lg font-bold text-white shadow-sm active:opacity-90">6개 사이트 비교하기</button>
     </form>
   );
 }

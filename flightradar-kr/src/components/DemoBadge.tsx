@@ -1,7 +1,4 @@
+/** User-facing marker for test (DEMO) data. */
 export function DemoBadge({ className = "" }: { className?: string }) {
-  return (
-    <span className={`inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-amber-800 ${className}`}>
-      DEMO DATA
-    </span>
-  );
+  return <span className={`inline-block whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ${className}`}>테스트 데이터</span>;
 }

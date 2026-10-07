@@ -54,3 +54,11 @@ export function resolvePlaceLabel(label: string | undefined): string | undefined
   const key = Object.keys(KO_CITY_ALIASES).find((k) => t.startsWith(k) || t.includes(k));
   return key ? KO_CITY_ALIASES[key] : undefined;
 }
+
+const METRO_NAMES: Record<string, string> = { SEL: "서울", TYO: "도쿄", OSA: "오사카" };
+
+/** Friendly name for an airport code, a metro code ("TYO") or a free-text label; falls back to the input. */
+export function placeName(code: string | undefined): string {
+  if (!code) return "";
+  return getAirport(code)?.city ?? METRO_NAMES[code.toUpperCase()] ?? code;
+}

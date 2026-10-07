@@ -16,6 +16,8 @@ export const searchParamsSchema = z
     cabinClass: z.enum(["economy", "premium_economy", "business", "first"]).default("economy"),
     directOnly: z.coerce.boolean().default(false),
     nearby: z.coerce.boolean().default(false),
+    /** ± days to compare around the chosen dates (0 = off). */
+    flex: z.coerce.number().int().min(0).max(3).default(0),
   })
   .refine((v) => v.origin !== v.destination, { message: "출발지와 도착지가 같습니다", path: ["destination"] })
   .refine((v) => !v.returnDate || v.returnDate >= v.departureDate, { message: "귀국일은 출국일 이후여야 합니다", path: ["returnDate"] });
@@ -27,8 +29,8 @@ export function parseSearchParams(raw: Record<string, string | string[] | undefi
   const flat: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(raw)) flat[k] = Array.isArray(v) ? v[0] : v;
   // z.coerce.boolean() treats "false" as true, so normalise explicitly.
-  for (const k of ["directOnly", "nearby"]) {
-    if (flat[k] === "false" || flat[k] === "0" || flat[k] === "") delete flat[k];
+  for (const k of ["directOnly", "nearby", "flex"]) {
+    if (flat[k] === "false" || (k !== "flex" && flat[k] === "0") || flat[k] === "") delete flat[k];
   }
   if (flat.returnDate === "") delete flat.returnDate;
   return searchParamsSchema.safeParse(flat);

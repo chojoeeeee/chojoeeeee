@@ -1,90 +1,78 @@
 import Link from "next/link";
-import { getAirport } from "@/config/airports";
-import { STATUS_TEXT, type WatchlistView } from "@/features/watchlist/view";
+import { placeName } from "@/config/airports";
+import type { StatusKey, WatchlistView } from "@/features/watchlist/view";
 import { formatKrw, formatMonthDay, timeAgo } from "@/lib/format";
 import { DemoBadge } from "./DemoBadge";
 import { WatchlistActions } from "./WatchlistActions";
 
-const STATUS_STYLE: Record<string, string> = {
-  target_reached: "bg-green-100 text-green-800",
-  waiting: "bg-blue-100 text-blue-800",
-  paused: "bg-slate-200 text-slate-700",
-  tracking: "bg-slate-100 text-slate-700",
-  no_price: "bg-amber-100 text-amber-800",
+const ALERT_TEXT: Record<StatusKey, { text: string; style: string }> = {
+  target_reached: { text: "🎯 목표가 도달", style: "bg-green-50 text-green-700" },
+  waiting: { text: "알림 대기 중", style: "bg-brand-soft text-brand" },
+  tracking: { text: "가격 추적 중", style: "bg-soft text-muted" },
+  paused: { text: "알림 꺼짐", style: "bg-soft text-muted" },
+  no_price: { text: "가격 확인 전", style: "bg-amber-50 text-amber-700" },
 };
+
+export function ChangeText({ change }: { change?: { amount: number; percent: number } }) {
+  if (!change) return <span className="text-muted">-</span>;
+  if (change.amount === 0) return <span>변동 없음</span>;
+  const down = change.amount < 0;
+  return (
+    <span className={`font-bold ${down ? "text-green-700" : "text-red-600"}`}>
+      {down ? "▼" : "▲"} {Math.abs(change.percent)}%
+    </span>
+  );
+}
 
 export function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[11px] text-muted">{label}</p>
-      <p className="text-sm font-semibold">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
+      <p className="text-base font-bold">{value}</p>
       {sub && <p className="text-[11px] text-muted">{sub}</p>}
     </div>
   );
 }
 
-export function ChangeText({ change }: { change?: { amount: number; percent: number } }) {
-  if (!change) return <span className="text-muted">비교 불가</span>;
-  const down = change.amount < 0;
-  return (
-    <span className={down ? "text-green-700" : change.amount > 0 ? "text-red-600" : ""}>
-      {change.amount === 0 ? "변동 없음" : `${down ? "▼" : "▲"} ${formatKrw(Math.abs(change.amount))} (${change.percent > 0 ? "+" : ""}${change.percent}%)`}
-    </span>
-  );
-}
-
-/** Server component: all numbers are computed on the server from stored price history. */
-export function WatchlistCard({ view, backgroundNote, demoMode, now, names }: { view: WatchlistView; backgroundNote: string; demoMode: boolean; now: number; names: Record<string, string> }) {
-  const { watchlist: w, stats, score } = view;
+/** Server component: just the facts a traveller needs. */
+export function WatchlistCard({ view, now }: { view: WatchlistView; now: number }) {
+  const { watchlist: w, stats } = view;
   const cur = stats.current;
+  const alert = ALERT_TEXT[view.statusKey];
   return (
-    <article className="space-y-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
+    <article className="space-y-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <Link href={`/watchlist/${w.id}`} className="text-lg font-bold">
-            {getAirport(w.origin)?.city ?? w.origin} → {getAirport(w.destination)?.city ?? w.destination}
-          </Link>
-          <p className="text-xs text-muted">
-            {formatMonthDay(w.departureDate)}{w.returnDate && ` ~ ${formatMonthDay(w.returnDate)}`} · 성인 {w.adults}명{w.directOnly && " · 직항만"}{w.nearbyAirports && " · 주변 공항 포함"}
-          </p>
-        </div>
-        <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[view.statusKey]}`}>{STATUS_TEXT[view.statusKey]}</span>
+        <Link href={`/watchlist/${w.id}`} className="block">
+          <h2 className="text-lg font-extrabold">{placeName(w.origin)} → {placeName(w.destination)}</h2>
+          <p className="text-sm text-muted">{formatMonthDay(w.departureDate)}{w.returnDate && ` ~ ${formatMonthDay(w.returnDate)}`} · 성인 {w.adults}명</p>
+        </Link>
+        <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${alert.style}`}>{alert.text}</span>
       </div>
 
       <div>
-        <p className="text-[11px] text-muted">현재 확인 가격 (1인){cur?.stale && " · 24시간 이상 지난 참고 가격"}</p>
+        <p className="text-xs text-muted">현재 가격 (1인)</p>
         {cur ? (
           <p className="flex flex-wrap items-center gap-2">
-            <span className="whitespace-nowrap text-2xl font-bold">{formatKrw(cur.price)}</span>
+            <span className="whitespace-nowrap text-4xl font-extrabold tracking-tight">{formatKrw(cur.price)}</span>
             {cur.isDemo && <DemoBadge />}
           </p>
         ) : (
-          <p className="text-sm text-muted">아직 확인된 가격이 없어요. &lsquo;다시 확인&rsquo;을 눌러보세요.</p>
+          <p className="text-sm text-muted">아직 확인된 가격이 없어요.</p>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="목표가" value={w.targetPrice !== undefined ? formatKrw(w.targetPrice) : "미설정"} />
-        <Stat label="최근 최저가" value={stats.recentLow !== undefined ? formatKrw(stats.recentLow) : "-"} />
-        <Stat label="등록 당시" value={stats.registered !== undefined ? formatKrw(stats.registered) : "-"} sub={w.registeredIsDemo ? "DEMO 기준" : undefined} />
+      <div className="grid grid-cols-3 gap-3 rounded-xl bg-soft p-3">
+        <Stat label="목표 가격" value={w.targetPrice !== undefined ? formatKrw(w.targetPrice) : "-"} />
+        <Stat label="등록 당시" value={stats.registered !== undefined ? formatKrw(stats.registered) : "-"} />
         <Stat label="변화" value={<ChangeText change={stats.changeFromRegistered} />} />
       </div>
 
-      {score?.score === undefined && cur && <p className="text-xs text-muted">Deal Score: 판단할 기록이 아직 부족해요.</p>}
-      {score?.score !== undefined && (
-        <p className="text-xs">
-          Deal Score <strong>{score.score}</strong>/100 {score.emoji} {score.label}
-          {score.reference && <span className="text-muted"> (기록이 적어 참고용)</span>}
-        </p>
-      )}
-
       <p className="text-xs text-muted">
         마지막 확인 <span suppressHydrationWarning>{timeAgo(view.lastCheckedAt, now)}</span>
-        {cur && ` · ${names[cur.provider] ?? cur.provider}`}
+        {cur?.stale && " · 오래된 가격이에요. 다시 확인해 보세요"}
       </p>
-      <p className="rounded-lg bg-slate-50 p-2 text-[11px] text-muted">{backgroundNote}</p>
 
-      <WatchlistActions id={w.id} enabled={w.enabled} demoMode={demoMode} />
+      <WatchlistActions id={w.id} enabled={w.enabled} />
     </article>
   );
 }

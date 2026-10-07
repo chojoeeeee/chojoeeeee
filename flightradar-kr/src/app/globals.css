@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f6f8fb;
-  --fg: #0f172a;
-  --muted: #64748b;
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
   --card: #ffffff;
-  --line: #e2e8f0;
-  --brand: #1d4ed8;
+  --line: #e5e7eb;
+  --soft: #f3f4f6;
+  --brand: #2563eb;
+  --brand-soft: #eff6ff;
 }
 
 @theme inline {
@@ -15,11 +17,22 @@
   --color-muted: var(--muted);
   --color-card: var(--card);
   --color-line: var(--line);
+  --color-soft: var(--soft);
   --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
 }
 
 body {
   background: var(--bg);
   color: var(--fg);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Comfortable tap targets on touch screens. */
+button,
+a,
+select,
+input {
+  touch-action: manipulation;
 }

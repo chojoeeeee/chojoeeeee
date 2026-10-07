@@ -1,10 +1,10 @@
 export default function Loading() {
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true" aria-label="항공권 검색 중">
-      <div className="h-6 w-40 rounded bg-slate-200" />
-      <div className="h-10 rounded-xl bg-slate-200" />
-      <div className="h-24 rounded-2xl bg-slate-200" />
-      {[0, 1, 2].map((i) => <div key={i} className="h-36 rounded-2xl bg-slate-200" />)}
+    <div className="animate-pulse space-y-4 pt-2" aria-busy="true" aria-label="항공권 검색 중">
+      <div className="h-8 w-48 rounded-lg bg-soft" />
+      <div className="h-40 rounded-3xl bg-soft" />
+      <div className="h-32 rounded-2xl bg-soft" />
+      <div className="h-32 rounded-2xl bg-soft" />
     </div>
   );
 }

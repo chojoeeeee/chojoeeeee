@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeFor } from "@/components/SourceBadge";
+import { adminBadge as badgeFor } from "@/lib/status-labels";
 import { CHECKED_AT, SOURCE_PROFILES } from "@/config/source-profiles";
 import { getSources } from "@/providers/sources";
 

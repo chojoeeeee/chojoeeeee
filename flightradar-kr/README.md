@@ -241,6 +241,23 @@ Watchlist Engine과 Provider Search Engine을 분리한다. Watchlist 쪽은 Pro
 ### DEMO_MODE
 `DEMO_MODE=true`이면 키/승인이 없는 소스가 **DEMO DATA**(`DEMO` 배지)로 채워진다. 실제 키가 설정된 Skyscanner는 DEMO_MODE와 무관하게 실제 호출을 쓴다. 실제 데이터가 하나라도 있으면 데모는 비교에서 제외된다. 운영에서는 `false`.
 
+## 화면 구조 (사용자 / 관리자)
+
+사용자는 **검색 → 결과 확인 → 가격 알림 등록** 3단계만 본다. Provider·정책·API 상태 같은 개발자 정보는 `/admin`에만 있다.
+
+| 구분 | 경로 | 내용 |
+|---|---|---|
+| 사용자 | `/` | 출발지·도착지·출국일·귀국일·인원, `직항만`, `날짜 ±3일도 비교`, **6개 사이트 비교하기** |
+| 사용자 | `/search` | 현재 최저가(가장 크게) → 실제 일정 가격 비교(가격·항공사·직항·수하물·판매처·확인하기) → (±3일 켜면) 다른 날짜 가격 → 관련 특가 → 하단 고정 **이 항공권 가격 알림 받기** |
+| 사용자 | `/watchlist` | 노선·여행일·현재 가격·목표 가격·등록 당시·변화율·알림 상태·다시 확인 (+ 일시정지/삭제 링크), `/watchlist/[id]`에 가격 그래프 |
+| 사용자 | `/settings/notifications` | 알림 연결 상태, 알림 종류 on/off, 테스트 알림 |
+| 관리자 | `/admin`, `/admin/providers`, `/admin/watchlists`, `/admin/search` | 서비스 연결·정책·호출 통계·조사 근거, Watchlist 통계, DEMO 가격 하락 시뮬레이션, 서비스별 상태 표 |
+
+* **관리자 보호**: 메뉴에 링크가 없고, `ADMIN_PASSWORD`를 설정하면 HTTP Basic 인증(아무 사용자명 + 그 비밀번호), **운영(production)에서 비밀번호가 없으면 404**로 존재 자체를 숨긴다. 개발 환경에서는 열려 있다. (`src/proxy.ts`, `src/lib/admin-auth.ts`)
+* **사용자용 문구**: 개발자 상태를 쉬운 말로 바꾼다 — `API REQUIRED`→"현재 자동 조회 준비 중", `PARTNER REQUIRED`→"제휴 연결 준비 중", `MANUAL`→"직접 확인", `DEMO`→"테스트 데이터", `LIVE`→"실시간 확인", `PUBLIC DEAL`→"공개 특가", `POLICY SKIPPED`→표시 안 함. (`src/lib/status-labels.ts`; 개발자 라벨은 `/admin`에서만 사용)
+* **±3일 비교**: 켰을 때만 동작한다. 선택한 일정이 끝난 뒤 **날짜 조합 6개 × 항공권 서비스**를 최대 3개 조합씩 조회한다(조합마다 정확한 날짜의 사용자 검색). 호출이 늘어나므로 기본은 꺼짐이며, Live API 사용량이 걱정되면 켜지 않는 것이 좋다. 특가 서비스는 날짜별로 다시 조회하지 않는다.
+* 테스트(DEMO) 데이터는 최저가 카드에 "테스트 데이터"로 한 번, 상단 안내 한 줄로 표시하고, 예약 링크가 없는 버튼은 비활성으로 보여준다. DEMO/LIVE를 섞지 않는 규칙은 그대로다.
+
 ## Phase 2 — Watchlist · 가격 기록 · 알림
 
 목표: 사용자가 항공권을 저장하고, 가격 변화를 기록하고, **허용된 Provider에서** 목표가 도달·새 최저가·특가가 생기면 알림을 받는다. **6개 Provider를 백그라운드에서 강제로 호출하지 않는다** — 모든 자동 호출은 `ProviderSchedulePolicy`/`planBackgroundRefresh()`를 따른다.
@@ -316,11 +333,11 @@ Watchlist Engine과 Provider Search Engine을 분리한다. Watchlist 쪽은 Pro
 
 ### 화면
 
-`/watchlist`(카드 목록: 현재가·목표가·최근 최저가·등록 당시·변화율·마지막 확인·상태, [다시 확인][일시정지][삭제]) · `/watchlist/[id]`(통계, Deal Score, Recharts 그래프 7/30/90일·전체·Provider별 선, 관련 특가, 알림 기록) · `/settings/notifications` · `/admin/watchlists`(개수·활성/정지·오늘 Refresh·알림·최근 오류·Background 가능 Provider 수) · `/admin/providers`(User Search / Background / Minimum Interval / Last User·Background Search / Last Error / Network Calls Today).
+`/watchlist`(카드 목록: 현재 가격·목표 가격·등록 당시·변화율·알림 상태, [다시 확인]) · `/watchlist/[id]`(통계, Deal Score, Recharts 그래프 7/30/90일·전체·Provider별 선, 관련 특가, 알림 기록) · `/settings/notifications` · `/admin/watchlists`(개수·활성/정지·오늘 Refresh·알림·최근 오류·Background 가능 Provider 수) · `/admin/providers`(User Search / Background / Minimum Interval / Last User·Background Search / Last Error / Network Calls Today).
 
 ### DEMO 테스트 흐름
 
-`DEMO_MODE=true` + `TELEGRAM_DRY_RUN=true`: 검색 → 🔔 이 가격 추적하기(등록 가격 = 현재 DEMO 최저가) → Watchlist 카드의 **🧪 DEMO 가격 하락**(DEMO_MODE 전용; DEMO 가격에만 동작, 10% 하락 가정) → 같은 Alert Engine이 실행 → 목표가에 닿으면 Dry Run Telegram 메시지 1개 → 다시 눌러도 중복 알림 없음.
+`DEMO_MODE=true` + `TELEGRAM_DRY_RUN=true`: 검색 → 🔔 이 가격 추적하기(등록 가격 = 현재 DEMO 최저가) → `/admin/watchlists`의 **🧪 DEMO 가격 하락**(DEMO_MODE 전용; DEMO 가격에만 동작, 10% 하락 가정) → 같은 Alert Engine이 실행 → 목표가에 닿으면 Dry Run Telegram 메시지 1개 → 다시 눌러도 중복 알림 없음.
 
 ## 폴더 구조
 
