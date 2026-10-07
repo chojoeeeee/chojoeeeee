@@ -1,5 +1,5 @@
 {
-  "id": "12b4b36c-8eb6-4ca4-9206-13375808e035",
+  "id": "2e0703b4-deca-4dad-908d-4797c8b9f0f6",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -269,14 +269,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "departure_date": {
-          "name": "departure_date",
+        "travel_start_date": {
+          "name": "travel_start_date",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "return_date": {
-          "name": "return_date",
+        "travel_end_date": {
+          "name": "travel_end_date",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -292,6 +292,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'KRW'"
         },
         "original_price": {
           "name": "original_price",
@@ -324,8 +331,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "discovered_at": {
-          "name": "discovered_at",
+        "published_at": {
+          "name": "published_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
@@ -338,11 +345,11 @@
         }
       },
       "indexes": {
-        "deals_discovered_idx": {
-          "name": "deals_discovered_idx",
+        "deals_published_idx": {
+          "name": "deals_published_idx",
           "columns": [
             {
-              "expression": "discovered_at",
+              "expression": "published_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

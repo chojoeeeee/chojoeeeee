@@ -33,16 +33,17 @@ CREATE TABLE "deals" (
 	"title" text NOT NULL,
 	"origin" text,
 	"destination" text,
-	"departure_date" text,
-	"return_date" text,
+	"travel_start_date" text,
+	"travel_end_date" text,
 	"airline" text,
 	"price" integer NOT NULL,
+	"currency" text DEFAULT 'KRW' NOT NULL,
 	"original_price" integer,
 	"discount_rate" real,
 	"booking_url" text NOT NULL,
 	"is_demo" boolean DEFAULT false NOT NULL,
 	"raw_source" text NOT NULL,
-	"discovered_at" timestamp with time zone NOT NULL,
+	"published_at" timestamp with time zone NOT NULL,
 	"expires_at" timestamp with time zone
 );
 --> statement-breakpoint
@@ -150,7 +151,7 @@ ALTER TABLE "price_history" ADD CONSTRAINT "price_history_watchlist_id_watchlist
 ALTER TABLE "watchlists" ADD CONSTRAINT "watchlists_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "alert_history_alert_sent_idx" ON "alert_history" USING btree ("alert_id","sent_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "alerts_watchlist_unique" ON "alerts" USING btree ("watchlist_id");--> statement-breakpoint
-CREATE INDEX "deals_discovered_idx" ON "deals" USING btree ("discovered_at");--> statement-breakpoint
+CREATE INDEX "deals_published_idx" ON "deals" USING btree ("published_at");--> statement-breakpoint
 CREATE INDEX "deals_destination_idx" ON "deals" USING btree ("destination");--> statement-breakpoint
 CREATE INDEX "flight_offers_search_idx" ON "flight_offers" USING btree ("search_id");--> statement-breakpoint
 CREATE INDEX "flight_offers_key_idx" ON "flight_offers" USING btree ("flight_key","provider");--> statement-breakpoint
