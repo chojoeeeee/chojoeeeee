@@ -13,7 +13,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 
 /** Telegram-HTML body for a message. DEMO messages are explicitly marked. */
 export function formatTelegramText(m: NotificationMessage): string {
-  const demo = m.isDemo ? "🧪 <b>DEMO DATA — 실제 가격이 아닌 테스트 알림</b>\n\n" : "";
+  const demo = m.isDemo ? "🧪 <b>[테스트]</b> 실제 가격이 아닌 테스트 알림입니다.\n\n" : "";
   return `${demo}${escapeHtml(m.text)}`;
 }
 
@@ -37,7 +37,7 @@ export class TelegramNotificationProvider implements NotificationProvider {
   async send(message: NotificationMessage): Promise<NotificationResult> {
     const text = formatTelegramText(message);
     if (this.cfg.dryRun) {
-      (this.cfg.log ?? ((l) => console.info(l)))(`[telegram:dry-run] ${text}${message.url ? `\n→ ${message.url}` : ""}`);
+      (this.cfg.log ?? ((l) => console.info(l)))(`[telegram:dry-run] ${text}${message.url ? `\n[${message.urlLabel ?? "항공권 확인하기"}] → ${message.url}` : ""}`);
       return { ok: true, dryRun: true };
     }
     if (!this.isConfigured()) return { ok: false, dryRun: false, error: "Telegram이 설정되지 않았습니다 (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)." };

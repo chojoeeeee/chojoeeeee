@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MemoryWatchlistStore } from "@/features/watchlist/memory-store";
 import { watchlistSearchHash } from "@/features/watchlist/search-key";
-import { emptyAlertState, type NewWatchlist, type PriceRow, type WatchlistStore } from "@/features/watchlist/types";
+import { type NewWatchlist, type PriceRow, type WatchlistStore } from "@/features/watchlist/types";
 import { createPgliteStore } from "./db-helpers";
 
 const USER = "00000000-0000-4000-8000-000000000001";
@@ -20,11 +20,11 @@ const base: NewWatchlist = {
   alertPriceDropPercent: 5,
   alertNewLow: true,
   notificationChannel: "telegram",
-  registeredPrice: 189000,
+  initialPrice: 189000,
 };
 
 function row(watchlistId: string, over: Partial<PriceRow> = {}): PriceRow {
-  return { watchlistId, runId: "r1", provider: "skyscanner", sourceType: "api", flightKey: "k1", price: 189000, currency: "KRW", airline: "제주항공", bookingUrl: "https://example.com/x", triggerType: "user", fetchedAt: "2026-10-07T09:00:00.000Z", ...over };
+  return { watchlistId, runId: "r1", provider: "skyscanner", sourceType: "api", flightKey: "k1", price: 189000, currency: "KRW", airline: "제주항공", bookingUrl: "https://example.com/x", triggerType: "user", dataMode: "LIVE", fetchedAt: "2026-10-07T09:00:00.000Z", ...over };
 }
 
 function contract(name: string, make: () => Promise<{ store: WatchlistStore; close?: () => Promise<void> }>) {
@@ -38,7 +38,7 @@ function contract(name: string, make: () => Promise<{ store: WatchlistStore; clo
 
     it("creates, reads, lists and deletes a watchlist (with its search hash)", async () => {
       const w = await store.createWatchlist(base);
-      expect(w).toMatchObject({ origin: "ICN", destination: "NRT", targetPrice: 170000, enabled: true, registeredPrice: 189000, registeredIsDemo: false });
+      expect(w).toMatchObject({ origin: "ICN", destination: "NRT", targetPrice: 170000, enabled: true, initialPrice: 189000, initialIsDemo: false });
       expect(w.searchHash).toBe(watchlistSearchHash(base));
       expect(await store.getWatchlist(w.id)).toEqual(w);
       expect((await store.listWatchlists(USER)).map((x) => x.id)).toContain(w.id);
@@ -76,22 +76,32 @@ function contract(name: string, make: () => Promise<{ store: WatchlistStore; clo
     it("deleting a watchlist removes its history and alert state", async () => {
       const w = await store.createWatchlist(base);
       await store.addPriceRows([row(w.id)]);
-      await store.saveAlertState({ ...emptyAlertState(w.id), lastNotifiedPrice: 1 });
-      await store.addAlertHistory({ watchlistId: w.id, alertType: "NEW_LOW", isDemo: false, sentAt: "2026-10-07T09:00:00.000Z", status: "sent", channel: "telegram" });
+      await store.addAlertHistory({ watchlistId: w.id, alertType: "NEW_LOWEST", isDemo: false, sentAt: "2026-10-07T09:00:00.000Z", status: "sent", channel: "telegram" });
       await store.deleteWatchlist(w.id);
       expect(await store.listPriceHistory(w.id)).toEqual([]);
       expect(await store.listAlertHistory({ watchlistId: w.id })).toEqual([]);
-      expect((await store.getAlertState(w.id)).lastNotifiedPrice).toBeUndefined();
     });
 
-    it("alert state: defaults, upsert and JSON fields round-trip", async () => {
+    it("new watchlist fields (flexibleDays, current/lowest price, lastCheckedAt) and price dataMode round-trip", async () => {
+      const w = await store.createWatchlist({ ...base, flexibleDays: 3 });
+      expect(w.flexibleDays).toBe(3);
+      expect([w.currentPrice, w.lowestPrice, w.lastCheckedAt]).toEqual([undefined, undefined, undefined]);
+      const u = await store.updateWatchlist(w.id, { currentPrice: 169000, lowestPrice: 169000, currentMode: "LIVE", lastCheckedAt: "2026-10-07T09:00:00.000Z" });
+      expect(u).toMatchObject({ currentPrice: 169000, lowestPrice: 169000, currentMode: "LIVE", lastCheckedAt: "2026-10-07T09:00:00.000Z" });
+      await store.addPriceRows([row(w.id, { dataMode: "DEMO", sourceType: "demo" }), row(w.id, { dataMode: "PUBLIC_DEAL", triggerType: "deal", sourceType: "public_web", fetchedAt: "2026-10-07T09:01:00.000Z" })]);
+      expect((await store.listPriceHistory(w.id)).map((r) => r.dataMode)).toEqual(["DEMO", "PUBLIC_DEAL"]);
+      expect(await store.countPriceRows()).toBeGreaterThanOrEqual(2);
+      expect((await store.listWatchlistsBySearchHash(w.searchHash)).map((x) => x.id)).toContain(w.id);
+      expect((await store.health()).ok).toBe(true);
+      await store.deleteWatchlist(w.id);
+    });
+
+    it("alert history keeps dedupeKey; provider runs keep searchId", async () => {
       const w = await store.createWatchlist(base);
-      expect(await store.getAlertState(w.id)).toEqual(emptyAlertState(w.id));
-      const s = { ...emptyAlertState(w.id), lastNotifiedPrice: 169000, lastNotifiedIsDemo: true, lastNotifiedAt: "2026-10-07T09:00:00.000Z", targetActive: true, lastByType: { TARGET_REACHED: "2026-10-07T09:00:00.000Z" }, notifiedDeals: { d1: { price: 139000, at: "2026-10-07T09:00:00.000Z" } } };
-      await store.saveAlertState(s);
-      expect(await store.getAlertState(w.id)).toEqual(s);
-      await store.saveAlertState({ ...s, targetActive: false });
-      expect((await store.getAlertState(w.id)).targetActive).toBe(false);
+      await store.addAlertHistory({ watchlistId: w.id, alertType: "RELATED_DEAL", newPrice: 139000, dedupeKey: "deal-1", isDemo: false, sentAt: "2026-10-07T09:00:00.000Z", status: "sent", channel: "telegram" });
+      expect((await store.listAlertHistory({ watchlistId: w.id }))[0]).toMatchObject({ dedupeKey: "deal-1" });
+      await store.logProviderRun({ searchHash: w.searchHash, searchId: "s-1", provider: "skyscanner", part: "flight", triggerType: "user", calledAt: "2026-10-07T09:00:00.000Z", status: "ok", resultCount: 1, network: true });
+      expect((await store.listProviderRuns({ searchHash: w.searchHash }))[0]).toMatchObject({ searchId: "s-1" });
       await store.deleteWatchlist(w.id);
     });
 
@@ -117,10 +127,10 @@ function contract(name: string, make: () => Promise<{ store: WatchlistStore; clo
     });
 
     it("provider calls: logged, filtered by search hash and time", async () => {
-      await store.logProviderCall({ searchHash: "h1", provider: "skyscanner", part: "flight", triggerType: "user", calledAt: "2026-10-07T09:00:00.000Z", status: "ok", resultCount: 6, network: true });
-      await store.logProviderCall({ searchHash: "h2", provider: "catchfrog", part: "deal", triggerType: "background", calledAt: "2026-10-07T10:00:00.000Z", status: "error", resultCount: 0, network: true, error: "timeout" });
-      expect((await store.listProviderCalls({ searchHash: "h1" })).map((c) => c.provider)).toEqual(["skyscanner"]);
-      const recent = await store.listProviderCalls({ since: "2026-10-07T09:30:00.000Z" });
+      await store.logProviderRun({ searchHash: "h1", provider: "skyscanner", part: "flight", triggerType: "user", calledAt: "2026-10-07T09:00:00.000Z", status: "ok", resultCount: 6, network: true });
+      await store.logProviderRun({ searchHash: "h2", provider: "catchfrog", part: "deal", triggerType: "background", calledAt: "2026-10-07T10:00:00.000Z", status: "error", resultCount: 0, network: true, error: "timeout" });
+      expect((await store.listProviderRuns({ searchHash: "h1" })).map((c) => c.provider)).toEqual(["skyscanner"]);
+      const recent = await store.listProviderRuns({ since: "2026-10-07T09:30:00.000Z" });
       expect(recent.find((c) => c.searchHash === "h2")).toMatchObject({ error: "timeout", triggerType: "background", network: true });
     });
   });

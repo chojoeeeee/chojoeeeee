@@ -38,7 +38,7 @@ describe("Telegram provider", () => {
     const f = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => (calls.push(JSON.parse(String(init?.body))), new Response("{}", { status: 200 })));
     await new TelegramNotificationProvider({ dryRun: false, token: "1:a", chatId: "1", fetchImpl: f as unknown as typeof fetch }).send({ ...msg, isDemo: true });
     expect(calls[0]!.reply_markup).toBeUndefined();
-    expect(String(calls[0]!.text)).toContain("DEMO DATA");
+    expect(String(calls[0]!.text)).toContain("[테스트]");
     expect(formatTelegramText({ ...msg, isDemo: true })).toContain("테스트 알림");
   });
   it("API errors become a failed result and never leak the bot token", async () => {

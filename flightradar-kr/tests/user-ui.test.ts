@@ -31,7 +31,7 @@ describe("user-facing status wording", () => {
     expect(userStatus(row("policy_skipped"))).toBeUndefined();
   });
   it("only states that carry data are marked as having data; problems read as one calm sentence", () => {
-    for (const s of ["timeout", "error", "unavailable"] as const) expect(userStatus(row(s))).toMatchObject({ text: "일시적으로 확인하지 못했어요", hasData: false });
+    for (const s of ["timeout", "error", "unavailable"] as const) expect(userStatus(row(s))).toMatchObject({ text: "현재 이 서비스의 가격을 확인할 수 없습니다.", hasData: false });
     expect(userStatus(row("ok"))?.hasData).toBe(true);
     expect(userStatus(row("manual_check"))?.hasData).toBe(false);
   });
@@ -71,7 +71,7 @@ describe("user screens do not contain developer vocabulary", () => {
     const code = strip(readFileSync(path.resolve(__dirname, "..", f), "utf8"));
     // Visible words only: UI strings (quoted text and JSX text), not identifiers.
     const visible = [...code.matchAll(/"([^"\n]*[가-힣A-Za-z][^"\n]*)"|>([^<>{}\n]*[가-힣A-Za-z][^<>{}\n]*)</g)].map((m) => m[1] ?? m[2]).join("\n");
-    expect(visible).not.toMatch(/API REQUIRED|PARTNER REQUIRED|POLICY|MANUAL|LIVE|DEMO|polling|background|백그라운드|Provider|DATABASE_URL|TELEGRAM_|CRON_SECRET|정책|메모리|Dry Run|ADMIN/);
+    expect(visible).not.toMatch(/API REQUIRED|\bAPI\b|PARTNER REQUIRED|POLICY|MANUAL|LIVE|DEMO|polling|background|백그라운드|Provider|DATABASE_URL|TELEGRAM_|CRON_SECRET|정책|메모리|Dry Run|ADMIN|Telegram|텔레그램|Cron|Database|데이터베이스/);
   });
   it("the public navigation has no admin links", () => {
     const layout = readFileSync(path.resolve(__dirname, "../src/app/layout.tsx"), "utf8");

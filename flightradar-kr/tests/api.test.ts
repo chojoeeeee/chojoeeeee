@@ -31,7 +31,7 @@ const body = { origin: "icn", destination: "nrt", departureDate: "2026-11-12", r
 
 async function create() {
   const res = await createPOST(json("/api/watchlists", "POST", body));
-  return (await res.json()) as { watchlist: { id: string; registeredPrice?: number; registeredIsDemo: boolean; searchHash: string }; outcome: { status: string; current?: { price: number; isDemo: boolean } } };
+  return (await res.json()) as { watchlist: { id: string; initialPrice?: number; initialIsDemo: boolean; searchHash: string }; outcome: { status: string; current?: { price: number; isDemo: boolean } } };
 }
 
 describe("watchlist CRUD API", () => {
@@ -41,8 +41,8 @@ describe("watchlist CRUD API", () => {
     const { watchlist, outcome } = (await res.json()) as Awaited<ReturnType<typeof create>>;
     expect(watchlist).toMatchObject({ origin: "ICN", destination: "NRT", targetPrice: 170000, alertPriceDropPercent: 5, alertNewLow: true, notificationChannel: "telegram", enabled: true, adults: 2 });
     expect(outcome.status).toBe("refreshed");
-    expect(watchlist.registeredPrice).toBeGreaterThan(0);
-    expect(watchlist.registeredIsDemo).toBe(true); // DEMO_MODE data is flagged from the very first price
+    expect(watchlist.initialPrice).toBeGreaterThan(0);
+    expect(watchlist.initialIsDemo).toBe(true); // DEMO_MODE data is flagged from the very first price
     const list = (await (await listGET()).json()) as { watchlists: { id: string }[] };
     expect(list.watchlists.map((w) => w.id)).toContain(watchlist.id);
   });

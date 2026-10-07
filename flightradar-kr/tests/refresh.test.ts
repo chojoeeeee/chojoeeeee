@@ -1,7 +1,8 @@
+import { deriveAlertState } from "@/features/alerts/state";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { refreshWatchlists, restrictSources, runBackgroundScheduler, simulateDemoDrop, type RefreshDeps } from "@/features/watchlist/refresh";
 import { MemoryWatchlistStore } from "@/features/watchlist/memory-store";
-import type { NewWatchlist, ProviderCallLog } from "@/features/watchlist/types";
+import type { NewWatchlist, ProviderRunLog } from "@/features/watchlist/types";
 import { priceStats } from "@/features/price-history/stats";
 import { NotificationService } from "@/lib/notifications/service";
 import { TelegramNotificationProvider } from "@/lib/notifications/telegram";
@@ -55,7 +56,7 @@ describe("user refresh (trigger = user)", () => {
 
     const first = await refreshWatchlists([w], deps("user", { skipAlerts: true }));
     expect(first.outcomes[0]).toMatchObject({ status: "refreshed", current: { price: 189000 } });
-    expect((await store.getWatchlist(w.id))?.registeredPrice).toBe(189000);
+    expect((await store.getWatchlist(w.id))?.initialPrice).toBe(189000);
     expect(sent).toHaveLength(0); // creation never alerts
 
     clock.advance(10 * 60_000);
@@ -63,9 +64,9 @@ describe("user refresh (trigger = user)", () => {
     const res = await refreshWatchlists([(await store.getWatchlist(w.id))!], deps("user"));
     const o = res.outcomes[0]!;
     expect(o).toMatchObject({ status: "refreshed", previous: 189000, current: { price: 169000 }, notified: true });
-    expect(o.decisions.filter((d) => d.shouldNotify).map((d) => d.type).sort()).toEqual(["NEW_LOW", "PRICE_DROP", "TARGET_REACHED"]);
+    expect(o.decisions.filter((d) => d.shouldNotify).map((d) => d.type).sort()).toEqual(["NEW_LOWEST", "PRICE_DROP", "TARGET_REACHED"]);
     expect(sent).toHaveLength(1); // ONE message even though three conditions were met
-    expect(sent[0]!.text).toContain("✅ 목표가 도달");
+    expect(sent[0]!.text).toContain("✅ 목표가에 도달했습니다.");
     expect((await store.listPriceHistory(w.id)).map((r) => r.price)).toEqual([189000, 169000]);
     expect((await store.getWatchlist(w.id))?.lastUserRefreshAt).toBeDefined();
     expect((await store.listAlertHistory({ watchlistId: w.id })).map((h) => h.status)).toEqual(["dry_run", "dry_run", "dry_run"]);
@@ -116,7 +117,7 @@ describe("background scheduler respects provider policy (three barriers)", () =>
     expect(runSources).not.toHaveBeenCalled();
     expect(a).not.toHaveBeenCalled();
     expect(b).not.toHaveBeenCalled();
-    expect(await store.listProviderCalls()).toEqual([]);
+    expect(await store.listProviderRuns()).toEqual([]);
   });
 
   it("only the provider parts that allow it are called", async () => {
@@ -261,7 +262,7 @@ describe("provider failures", () => {
     const w = await store.createWatchlist(NEW);
     const report = await refreshWatchlists([w], deps("background", { timeoutMs: 50 }));
     expect(report.outcomes[0]).toMatchObject({ status: "refreshed", current: { price: 180000, provider: "good" } });
-    const calls = await store.listProviderCalls();
+    const calls = await store.listProviderRuns();
     expect(Object.fromEntries(calls.map((c) => [c.provider, c.status]))).toEqual({ good: "ok", bad: "error", slow: "timeout" });
     expect(calls.find((c) => c.provider === "bad")).toMatchObject({ network: true, error: expect.any(String) });
   });
@@ -269,12 +270,12 @@ describe("provider failures", () => {
     const clock = new Clock();
     const store = new MemoryWatchlistStore(clock.now);
     const notifier = new NotificationService([{ channel: "telegram", send: async () => ({ ok: false, dryRun: false, error: "Telegram HTTP 500" }) }]);
-    const w = await store.createWatchlist({ ...NEW, registeredPrice: 189000 });
+    const w = await store.createWatchlist({ ...NEW, initialPrice: 189000 });
     const src = fakeSource("sky", { flight: async () => priced("sky", 169000), demo: false });
     const res = await refreshWatchlists([w], { store, sources: [src], notifier, trigger: "user", timeoutMs: 1000, now: clock.now });
     expect(res.outcomes[0]).toMatchObject({ status: "refreshed", notified: false, errors: ["Telegram HTTP 500"] });
     expect((await store.listAlertHistory({ watchlistId: w.id })).every((h) => h.status === "failed")).toBe(true);
-    expect((await store.getAlertState(w.id)).lastNotifiedPrice).toBeUndefined(); // will retry on the next evaluation
+    expect(deriveAlertState(w.id, await store.listAlertHistory({ watchlistId: w.id })).lastNotifiedPrice).toBeUndefined(); // will retry on the next evaluation
   });
   it("an error in one watchlist does not stop the others", async () => {
     const { store, deps } = setup([fakeSource("sky", { flight: async () => priced("sky", 180000), demo: false })]);
@@ -328,7 +329,7 @@ describe("alert flow: duplicates, cooldown, direction", () => {
     s.clock.advance(3_600_000);
     const within = await s.refresh();
     expect(within.notified).toBe(false);
-    expect(within.decisions.filter((d) => d.suppressedBy === "cooldown").map((d) => d.type).sort()).toEqual(["NEW_LOW", "PRICE_DROP"]);
+    expect(within.decisions.filter((d) => d.suppressedBy === "cooldown").map((d) => d.type).sort()).toEqual(["NEW_LOWEST", "PRICE_DROP"]);
     s.price.v = 140000;
     s.clock.advance(6 * 3_600_000);
     const after = await s.refresh();
@@ -344,7 +345,7 @@ describe("alert flow: duplicates, cooldown, direction", () => {
     s.price.v = 200000;
     s.clock.advance(3_600_000);
     await s.refresh();
-    expect((await s.store.getAlertState(s.w.id)).targetActive).toBe(false);
+    expect(deriveAlertState(s.w.id, await s.store.listAlertHistory({ watchlistId: s.w.id }), { targetPrice: s.w.targetPrice, priorSeries: [{ at: s.clock.now().toISOString(), price: 200000 }] }).targetActive).toBe(false); // re-armed: the price was above target again after the alert
     s.price.v = 165000;
     s.clock.advance(7 * 3_600_000);
     const o = await s.refresh();
@@ -368,7 +369,7 @@ describe("alert flow: duplicates, cooldown, direction", () => {
 describe("DEMO and LIVE are never mixed", () => {
   it("demo-only data is flagged: stats, messages and history carry the DEMO marker", async () => {
     const { store, deps, sent } = setup([fakeSource("d", { flight: async () => priced("d", 169000, true) })]);
-    const w = await store.createWatchlist({ ...NEW, registeredPrice: 189000, registeredIsDemo: true });
+    const w = await store.createWatchlist({ ...NEW, initialPrice: 189000, initialIsDemo: true });
     const res = await refreshWatchlists([w], deps("user"));
     expect(res.outcomes[0]?.current).toMatchObject({ price: 169000, isDemo: true });
     expect(sent[0]?.isDemo).toBe(true);
@@ -380,13 +381,13 @@ describe("DEMO and LIVE are never mixed", () => {
     const demoSrc = fakeSource("d", { flight: async () => priced("d", 100000, true) });
     const realSrc = fakeSource("r", { flight: async () => priced("r", 200000, false), demo: false });
     const { store, sent } = setup([demoSrc, realSrc], { clock });
-    const w = await store.createWatchlist({ ...NEW, registeredPrice: 150000, registeredIsDemo: true, targetPrice: undefined });
+    const w = await store.createWatchlist({ ...NEW, initialPrice: 150000, initialIsDemo: true, targetPrice: undefined });
     const notifier = new NotificationService([{ channel: "telegram", send: async (m) => (sent.push({ text: m.text, isDemo: m.isDemo }), { ok: true, dryRun: true }) }]);
     await refreshWatchlists([w], { store, sources: [demoSrc], notifier, trigger: "user", timeoutMs: 100, now: clock.now, userRefreshMinMs: 0 });
     clock.advance(3_600_000);
     const res = await refreshWatchlists([(await store.getWatchlist(w.id))!], { store, sources: [demoSrc, realSrc], notifier, trigger: "user", timeoutMs: 100, now: clock.now, userRefreshMinMs: 0 });
     expect(res.outcomes[0]?.current).toMatchObject({ price: 200000, isDemo: false });
-    const stats = priceStats(await store.listPriceHistory(w.id), { now: clock.now(), registeredPrice: 150000, registeredIsDemo: true });
+    const stats = priceStats(await store.listPriceHistory(w.id), { now: clock.now(), initialPrice: 150000, initialIsDemo: true });
     expect(stats.mode).toBe("live");
     expect(stats.recentLow).toBe(200000); // the 100,000 demo price is not "the low"
     expect(stats.changeFromRegistered).toBeUndefined();
@@ -401,9 +402,9 @@ describe("DEMO end-to-end: registered 189,000 → simulated drop → target 170,
     const lines: string[] = [];
     const notifier = new NotificationService([new TelegramNotificationProvider({ dryRun: true, log: (l) => lines.push(l) })]);
     const src = fakeSource("demo-a", { flight: async () => priced("demo-a", 189000, true) });
-    const w = await store.createWatchlist({ ...NEW, targetPrice: 170000, registeredPrice: undefined });
+    const w = await store.createWatchlist({ ...NEW, targetPrice: 170000, initialPrice: undefined });
     await refreshWatchlists([w], { store, sources: [src], notifier, trigger: "user", timeoutMs: 100, now: clock.now, skipAlerts: true });
-    expect((await store.getWatchlist(w.id))?.registeredPrice).toBe(189000);
+    expect((await store.getWatchlist(w.id))?.initialPrice).toBe(189000);
 
     clock.advance(3_600_000);
     const out = await simulateDemoDrop((await store.getWatchlist(w.id))!, { store, notifier, sources: [src], now: clock.now, percent: 10.5 }); // 189,000 → 169,155 → rounded to 169,200 (≤ target 170,000)
@@ -411,9 +412,8 @@ describe("DEMO end-to-end: registered 189,000 → simulated drop → target 170,
     expect(out?.notified).toBe(true);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("[telegram:dry-run]");
-    expect(lines[0]).toContain("DEMO DATA");
-    expect(lines[0]).toContain("✅ 목표가 도달");
-    expect(lines[0]).toMatch(/Deal Score\s+\d+\/100/);
+    expect(lines[0]).toContain("[테스트]");
+    expect(lines[0]).toContain("✅ 목표가에 도달했습니다.");
 
     // running the simulation again right away must not duplicate the alert
     const again = await simulateDemoDrop((await store.getWatchlist(w.id))!, { store, notifier, sources: [src], now: clock.now, percent: 0.5 });
@@ -438,7 +438,7 @@ describe("related deals in watchlist alerts", () => {
     });
     const flightSrc = fakeSource("sky", { flight: async () => priced("sky", 178000), demo: false, flightPolicy: BG_OK });
     const { store, deps, clock, sent } = setup([flightSrc, dealSrc]);
-    const w = await store.createWatchlist({ ...NEW, targetPrice: undefined, registeredPrice: 178000 });
+    const w = await store.createWatchlist({ ...NEW, targetPrice: undefined, initialPrice: 178000 });
     const r1 = await refreshWatchlists([w], deps("background"));
     expect(r1.outcomes[0]?.decisions.filter((d) => d.type === "RELATED_DEAL" && d.shouldNotify)).toHaveLength(1);
     expect(sent.some((m) => m.text.includes("비슷한 일정의 특가 발견") && m.text.includes("약 39,000원 절약"))).toBe(true);
@@ -459,7 +459,7 @@ describe("provider call log", () => {
     ]);
     const w = await store.createWatchlist(NEW);
     const report = await refreshWatchlists([w], deps("user"));
-    const by = Object.fromEntries((await store.listProviderCalls()).map((c: ProviderCallLog) => [c.provider, c]));
+    const by = Object.fromEntries((await store.listProviderRuns()).map((c: ProviderRunLog) => [c.provider, c]));
     expect(by.real).toMatchObject({ network: true, status: "ok", part: "flight", triggerType: "user", searchHash: w.searchHash });
     expect(by.demo?.network).toBe(false);
     expect(by.manual).toMatchObject({ network: false, status: "manual_check" });

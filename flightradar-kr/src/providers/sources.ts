@@ -16,8 +16,8 @@ const trip = new TripProvider();
  * automatically stays here and reports `manual_check` / `api_required` / …
  */
 export function getSources(): SourceProvider[] {
+  // Connection priority: Skyscanner → Trip.com → 알리항공권 → 캐치프로그 → 출국의 신 → 플레이윙즈.
   return [
-    catchfrog,
     {
       name: skyscanner.name,
       displayName: skyscanner.displayName,
@@ -32,9 +32,6 @@ export function getSources(): SourceProvider[] {
       },
       flight: skyscanner,
     },
-    playwings,
-    chulguk,
-    aliFlight,
     {
       name: trip.name,
       displayName: trip.displayName,
@@ -44,5 +41,9 @@ export function getSources(): SourceProvider[] {
       directUrl: () => "https://kr.trip.com/flights/",
       flight: trip,
     },
+    aliFlight,
+    catchfrog,
+    chulguk,
+    playwings,
   ];
 }

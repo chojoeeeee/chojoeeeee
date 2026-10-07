@@ -18,7 +18,7 @@ export interface AlertDecision {
 }
 
 export interface EvaluateInput {
-  watchlist: Pick<Watchlist, "targetPrice" | "alertPriceDropPercent" | "alertNewLow" | "registeredPrice" | "registeredIsDemo">;
+  watchlist: Pick<Watchlist, "targetPrice" | "alertPriceDropPercent" | "alertNewLow" | "initialPrice" | "initialIsDemo">;
   settings: Pick<NotificationSettings, "enabled" | "targetAlerts" | "newLowAlerts" | "priceDropAlerts" | "relatedDealAlerts" | "cooldownHours" | "minDropAmount">;
   /** Composite price just before this refresh (same data mode), if any. */
   previousPrice?: number;
@@ -63,8 +63,8 @@ export function evaluateAlerts(input: EvaluateInput): AlertDecision[] {
     const baseline =
       state.lastNotifiedPrice !== undefined && sameMode(state.lastNotifiedIsDemo)
         ? state.lastNotifiedPrice
-        : w.registeredPrice !== undefined && sameMode(w.registeredIsDemo)
-          ? w.registeredPrice
+        : w.initialPrice !== undefined && sameMode(w.initialIsDemo)
+          ? w.initialPrice
           : undefined;
     if (baseline !== undefined && cur < baseline) {
       const dropAmount = baseline - cur;
@@ -82,7 +82,7 @@ export function evaluateAlerts(input: EvaluateInput): AlertDecision[] {
 
     // 4) New all-time low (needs earlier observations to compare with).
     if (w.alertNewLow && input.history.length > 0 && cur < Math.min(...input.history)) {
-      out.push({ type: "NEW_LOW", ...gate("NEW_LOW", s.newLowAlerts), reason: "새로운 최저가", oldPrice: Math.min(...input.history), newPrice: cur });
+      out.push({ type: "NEW_LOWEST", ...gate("NEW_LOWEST", s.newLowAlerts), reason: "새로운 최저가", oldPrice: Math.min(...input.history), newPrice: cur });
     }
   }
 

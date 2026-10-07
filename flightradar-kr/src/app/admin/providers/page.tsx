@@ -31,7 +31,7 @@ async function safeHealth(name: string, fn?: () => Promise<ProviderHealth>): Pro
 
 export default async function ProvidersPage() {
   const now = new Date();
-  const calls = summarizeProviderCalls(await getStore().listProviderCalls({ since: new Date(now.getTime() - 30 * 86_400_000).toISOString() }), kstDayStart(now));
+  const calls = summarizeProviderCalls(await getStore().listProviderRuns({ since: new Date(now.getTime() - 30 * 86_400_000).toISOString() }), kstDayStart(now));
   const rows = await Promise.all(
     getSources().map(async (s) => ({
       source: s,

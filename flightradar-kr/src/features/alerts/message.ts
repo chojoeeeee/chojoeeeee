@@ -1,12 +1,13 @@
 import { getAirport } from "@/config/airports";
 import { describeShift } from "@/features/deal-engine/related";
-import type { DealScore, CurrentPrice } from "@/features/price-history/stats";
+import type { CurrentPrice, DealScore } from "@/features/price-history/stats";
 import type { Watchlist } from "@/features/watchlist/types";
 import type { NotificationMessage } from "@/lib/notifications/types";
 import type { AlertDecision } from "./evaluate";
 
 const krw = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+const mdKo = (d: string) => `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일`;
 
 export function formatKst(iso: string): string {
   const parts = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
@@ -21,7 +22,7 @@ export interface BuiltMessage {
 }
 
 export interface MessageContext {
-  watchlist: Pick<Watchlist, "origin" | "destination" | "departureDate" | "returnDate" | "targetPrice">;
+  watchlist: Pick<Watchlist, "origin" | "destination" | "departureDate" | "returnDate" | "targetPrice" | "initialPrice" | "initialIsDemo">;
   current?: CurrentPrice;
   score?: DealScore;
   names: Record<string, string>;
@@ -29,7 +30,7 @@ export interface MessageContext {
   fallbackUrl?: string;
 }
 
-const PRIORITY: Record<string, number> = { TARGET_REACHED: 0, NEW_LOW: 1, PRICE_DROP: 2 };
+const PRIORITY: Record<string, number> = { TARGET_REACHED: 0, NEW_LOWEST: 1, PRICE_DROP: 2 };
 
 /**
  * ONE message per evaluation for the fare conditions (target / drop / new low), however many were
@@ -45,18 +46,21 @@ export function buildAlertMessages(decisions: AlertDecision[], ctx: MessageConte
   if (fare.length > 0 && ctx.current) {
     const top = fare[0]!;
     const cur = ctx.current;
-    const drop = fare.find((d) => d.oldPrice !== undefined && d.oldPrice > cur.price);
-    const title =
-      top.type === "TARGET_REACHED" ? `🎯 ${city(w.destination)} 항공권 목표가 도달` : top.type === "NEW_LOW" ? `📉 ${city(w.destination)} 항공권 새로운 최저가` : `🔥 ${city(w.destination)} 항공권 가격 하락`;
-    const lines = [title, route, dates, "", "현재 최저가", krw(cur.price)];
-    if (drop?.oldPrice !== undefined) lines.push("이전", krw(drop.oldPrice), `${krw(drop.oldPrice - cur.price)} 하락 ↓`);
-    if (w.targetPrice !== undefined) {
-      lines.push("", "목표 가격", krw(w.targetPrice));
-      if (fare.some((d) => d.type === "TARGET_REACHED")) lines.push("✅ 목표가 도달");
+    const title = top.type === "NEW_LOWEST" ? "📉 새로운 최저가가 나왔어요" : "🔥 항공권 가격이 내려갔어요";
+    const koRoute = `${city(w.origin)} → ${city(w.destination)}`;
+    const koDates = `${mdKo(w.departureDate)}${w.returnDate ? ` ~ ${mdKo(w.returnDate)}` : ""}`;
+    const lines = [title, "", koRoute, koDates, "", "현재 최저가", krw(cur.price)];
+    // "등록 당시" only when it is the same kind of price (a DEMO start price is never compared with a LIVE one).
+    const start = w.initialPrice !== undefined && w.initialIsDemo === cur.isDemo ? w.initialPrice : undefined;
+    if (start !== undefined) {
+      lines.push("", "등록 당시", krw(start));
+      if (start > cur.price) lines.push("", `${krw(start - cur.price)} 하락`);
     }
-    if (ctx.score?.score !== undefined) lines.push("", "Deal Score", `${ctx.score.score}/100 ${ctx.score.emoji}${ctx.score.label}${ctx.score.reference ? " (참고용)" : ""}`.trim());
-    lines.push("", "확인 서비스", ctx.names[cur.provider] ?? cur.provider, "마지막 확인", formatKst(cur.at));
-    if (cur.stale) lines.push("(24시간 이상 지난 참고 가격입니다)");
+    if (w.targetPrice !== undefined) {
+      lines.push("", "설정한 목표 가격", krw(w.targetPrice));
+      if (fare.some((d) => d.type === "TARGET_REACHED")) lines.push("", "✅ 목표가에 도달했습니다.");
+    }
+    if (cur.stale) lines.push("", "(24시간 이상 지난 참고 가격입니다)");
     out.push({
       message: { title, text: lines.join("\n"), url: cur.bookingUrl ?? ctx.fallbackUrl, urlLabel: "항공권 확인하기", isDemo: cur.isDemo },
       decisions: fare,

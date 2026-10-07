@@ -1,7 +1,10 @@
 import type { CabinClass, SourceType } from "@/types/domain";
 
+/** LIVE = real fare · DEMO = test data (never mixed with LIVE) · PUBLIC_DEAL = a related deal, not a fare. */
+export type DataMode = "LIVE" | "DEMO" | "PUBLIC_DEAL";
+
 export type TriggerType = "user" | "background" | "deal";
-export type AlertType = "TARGET_REACHED" | "PRICE_DROP" | "NEW_LOW" | "RELATED_DEAL";
+export type AlertType = "TARGET_REACHED" | "PRICE_DROP" | "NEW_LOWEST" | "RELATED_DEAL";
 export type NotificationChannel = "telegram";
 
 export interface Watchlist {
@@ -16,6 +19,8 @@ export interface Watchlist {
   cabinClass: CabinClass;
   directOnly: boolean;
   nearbyAirports: boolean;
+  /** ±N days the user wanted compared (0 = exact dates only). */
+  flexibleDays: number;
   targetPrice?: number;
   alertPriceDropPercent: number;
   alertNewLow: boolean;
@@ -24,19 +29,25 @@ export interface Watchlist {
   /** Same hash ⇒ same provider search (shared between watchlists). */
   searchHash: string;
   /** Per-person price at registration, and whether it was DEMO data. */
-  registeredPrice?: number;
-  registeredIsDemo: boolean;
+  initialPrice?: number;
+  initialIsDemo: boolean;
+  /** Latest best per-person price and the lowest seen — one data mode only (see `currentMode`). */
+  currentPrice?: number;
+  lowestPrice?: number;
+  currentMode?: "LIVE" | "DEMO";
   createdAt: string;
   updatedAt: string;
+  /** Last time prices were checked, by anyone (user refresh or scheduler). */
+  lastCheckedAt?: string;
   lastUserRefreshAt?: string;
   lastBackgroundRefreshAt?: string;
 }
 
-export type NewWatchlist = Omit<Watchlist, "id" | "createdAt" | "updatedAt" | "searchHash" | "registeredIsDemo" | "enabled" | "lastUserRefreshAt" | "lastBackgroundRefreshAt"> &
-  Partial<Pick<Watchlist, "enabled" | "registeredIsDemo">>;
+export type NewWatchlist = Omit<Watchlist, "id" | "createdAt" | "updatedAt" | "searchHash" | "initialIsDemo" | "enabled" | "flexibleDays" | "currentPrice" | "lowestPrice" | "currentMode" | "lastCheckedAt" | "lastUserRefreshAt" | "lastBackgroundRefreshAt"> &
+  Partial<Pick<Watchlist, "enabled" | "initialIsDemo" | "flexibleDays">>;
 
 /** `targetPrice: null` clears the target. */
-export type WatchlistPatch = Partial<Pick<Watchlist, "alertPriceDropPercent" | "alertNewLow" | "enabled" | "registeredPrice" | "registeredIsDemo" | "lastUserRefreshAt" | "lastBackgroundRefreshAt">> & { targetPrice?: number | null };
+export type WatchlistPatch = Partial<Pick<Watchlist, "alertPriceDropPercent" | "alertNewLow" | "enabled" | "flexibleDays" | "initialPrice" | "initialIsDemo" | "currentPrice" | "lowestPrice" | "currentMode" | "lastCheckedAt" | "lastUserRefreshAt" | "lastBackgroundRefreshAt">> & { targetPrice?: number | null };
 
 /** One observed price (per person). `sourceType === "demo"` rows are DEMO DATA. */
 export interface PriceRow {
@@ -53,7 +64,13 @@ export interface PriceRow {
   returnAt?: string;
   bookingUrl?: string;
   triggerType: TriggerType;
+  dataMode: DataMode;
   fetchedAt: string;
+}
+
+/** The data mode of a stored/new price row. */
+export function dataModeOf(sourceType: SourceType, triggerType: TriggerType): DataMode {
+  return sourceType === "demo" ? "DEMO" : triggerType === "deal" ? "PUBLIC_DEAL" : "LIVE";
 }
 
 export const isDemoRow = (r: Pick<PriceRow, "sourceType">) => r.sourceType === "demo";
@@ -77,6 +94,8 @@ export interface AlertHistoryEntry {
   provider?: string;
   oldPrice?: number;
   newPrice?: number;
+  /** RELATED_DEAL: the deal id (so the same deal is not announced twice). */
+  dedupeKey?: string;
   isDemo: boolean;
   sentAt: string;
   status: "sent" | "dry_run" | "failed";
@@ -107,9 +126,11 @@ export const defaultNotificationSettings = (userId: string): NotificationSetting
   minDropAmount: 10_000,
 });
 
-export interface ProviderCallLog {
+export interface ProviderRunLog {
   id?: string;
   searchHash: string;
+  /** Groups the runs of one user search / refresh. */
+  searchId?: string;
   provider: string;
   part: "flight" | "deal";
   triggerType: "user" | "background";
@@ -127,20 +148,24 @@ export interface WatchlistStore {
   listWatchlists(userId: string): Promise<Watchlist[]>;
   /** Every watchlist of every user (scheduler / admin). */
   listAllWatchlists(): Promise<Watchlist[]>;
+  /** Watchlists tracking exactly this search (same hash). */
+  listWatchlistsBySearchHash(searchHash: string): Promise<Watchlist[]>;
   updateWatchlist(id: string, patch: WatchlistPatch): Promise<Watchlist | undefined>;
   deleteWatchlist(id: string): Promise<boolean>;
 
   addPriceRows(rows: PriceRow[]): Promise<void>;
   listPriceHistory(watchlistId: string, opts?: { since?: string }): Promise<PriceRow[]>;
+  countPriceRows(): Promise<number>;
 
-  getAlertState(watchlistId: string): Promise<AlertState>;
-  saveAlertState(state: AlertState): Promise<void>;
   addAlertHistory(entry: AlertHistoryEntry): Promise<void>;
   listAlertHistory(opts?: { watchlistId?: string; since?: string; limit?: number }): Promise<AlertHistoryEntry[]>;
 
   getNotificationSettings(userId: string): Promise<NotificationSettings>;
   saveNotificationSettings(settings: NotificationSettings): Promise<void>;
 
-  logProviderCall(call: ProviderCallLog): Promise<void>;
-  listProviderCalls(opts?: { searchHash?: string; since?: string }): Promise<ProviderCallLog[]>;
+  logProviderRun(call: ProviderRunLog): Promise<void>;
+  listProviderRuns(opts?: { searchHash?: string; since?: string }): Promise<ProviderRunLog[]>;
+
+  /** Is the storage reachable? (`kind` tells which implementation is in use.) */
+  health(): Promise<{ ok: boolean; kind: "postgres" | "memory"; error?: string }>;
 }

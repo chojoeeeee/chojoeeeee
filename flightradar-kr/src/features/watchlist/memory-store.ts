@@ -2,13 +2,11 @@ import { randomUUID } from "node:crypto";
 import { watchlistSearchHash } from "./search-key";
 import {
   defaultNotificationSettings,
-  emptyAlertState,
   type AlertHistoryEntry,
-  type AlertState,
   type NewWatchlist,
   type NotificationSettings,
   type PriceRow,
-  type ProviderCallLog,
+  type ProviderRunLog,
   type Watchlist,
   type WatchlistPatch,
   type WatchlistStore,
@@ -21,16 +19,15 @@ const after = (iso: string, since?: string) => since === undefined || Date.parse
 export class MemoryWatchlistStore implements WatchlistStore {
   private watchlists = new Map<string, Watchlist>();
   private prices: PriceRow[] = [];
-  private states = new Map<string, AlertState>();
   private history: AlertHistoryEntry[] = [];
   private settings = new Map<string, NotificationSettings>();
-  private calls: ProviderCallLog[] = [];
+  private calls: ProviderRunLog[] = [];
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
   async createWatchlist(input: NewWatchlist): Promise<Watchlist> {
     const ts = this.now().toISOString();
-    const w: Watchlist = { enabled: true, registeredIsDemo: false, ...input, id: randomUUID(), searchHash: watchlistSearchHash(input), createdAt: ts, updatedAt: ts };
+    const w: Watchlist = { enabled: true, initialIsDemo: false, flexibleDays: 0, ...input, id: randomUUID(), searchHash: watchlistSearchHash(input), createdAt: ts, updatedAt: ts };
     this.watchlists.set(w.id, w);
     return clone(w);
   }
@@ -40,6 +37,9 @@ export class MemoryWatchlistStore implements WatchlistStore {
   }
   async listWatchlists(userId: string) {
     return [...this.watchlists.values()].filter((w) => w.userId === userId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone);
+  }
+  async listWatchlistsBySearchHash(searchHash: string) {
+    return [...this.watchlists.values()].filter((w) => w.searchHash === searchHash).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone);
   }
   async listAllWatchlists() {
     return [...this.watchlists.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone);
@@ -55,7 +55,6 @@ export class MemoryWatchlistStore implements WatchlistStore {
   async deleteWatchlist(id: string) {
     const existed = this.watchlists.delete(id);
     this.prices = this.prices.filter((p) => p.watchlistId !== id);
-    this.states.delete(id);
     this.history = this.history.filter((h) => h.watchlistId !== id);
     return existed;
   }
@@ -67,11 +66,8 @@ export class MemoryWatchlistStore implements WatchlistStore {
     return this.prices.filter((p) => p.watchlistId === watchlistId && after(p.fetchedAt, opts?.since)).sort((a, b) => Date.parse(a.fetchedAt) - Date.parse(b.fetchedAt)).map(clone);
   }
 
-  async getAlertState(watchlistId: string) {
-    return clone(this.states.get(watchlistId) ?? emptyAlertState(watchlistId));
-  }
-  async saveAlertState(state: AlertState) {
-    this.states.set(state.watchlistId, clone(state));
+  async countPriceRows() {
+    return this.prices.length;
   }
   async addAlertHistory(entry: AlertHistoryEntry) {
     this.history.push({ ...clone(entry), id: entry.id ?? randomUUID() });
@@ -91,10 +87,14 @@ export class MemoryWatchlistStore implements WatchlistStore {
     this.settings.set(s.userId, clone(s));
   }
 
-  async logProviderCall(call: ProviderCallLog) {
+  async logProviderRun(call: ProviderRunLog) {
     this.calls.push({ ...clone(call), id: call.id ?? randomUUID() });
   }
-  async listProviderCalls(opts?: { searchHash?: string; since?: string }) {
+  async listProviderRuns(opts?: { searchHash?: string; since?: string }) {
     return this.calls.filter((c) => (opts?.searchHash === undefined || c.searchHash === opts.searchHash) && after(c.calledAt, opts?.since)).map(clone);
+  }
+
+  async health() {
+    return { ok: true, kind: "memory" as const };
   }
 }

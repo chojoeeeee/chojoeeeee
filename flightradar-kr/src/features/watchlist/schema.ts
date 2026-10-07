@@ -14,6 +14,7 @@ export const createWatchlistSchema = z
     cabinClass: z.enum(["economy", "premium_economy", "business", "first"]).default("economy"),
     directOnly: z.boolean().default(false),
     nearbyAirports: z.boolean().default(false),
+    flexibleDays: z.number().int().min(0).max(3).default(0),
     /** Per-person target price in KRW. */
     targetPrice: z.number().int().min(1000).max(50_000_000).optional(),
     alertPriceDropPercent: z.number().min(1).max(90).default(5),

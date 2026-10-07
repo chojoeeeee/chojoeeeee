@@ -85,9 +85,16 @@ export const watchlists = pgTable(
     enabled: boolean("enabled").default(true).notNull(),
     /** Hash of the normalised search; watchlists with the same hash share one provider search. */
     searchHash: text("search_hash").notNull(),
-    /** Price when the watchlist was created ("등록 당시"), and whether it was DEMO data. */
-    registeredPrice: integer("registered_price"),
-    registeredIsDemo: boolean("registered_is_demo").default(false).notNull(),
+    /** ±N days to compare around the chosen dates (the search's "날짜 ±3일" option). */
+    flexibleDays: integer("flexible_days").default(0).notNull(),
+    /** Price when the watchlist was created ("등록 당시"), and whether it was DEMO data. (DB column keeps its original name.) */
+    initialPrice: integer("registered_price"),
+    initialIsDemo: boolean("registered_is_demo").default(false).notNull(),
+    /** Denormalised snapshot, updated on every refresh. `current_mode` says whether these two numbers are LIVE or DEMO — never mixed. */
+    currentPrice: integer("current_price"),
+    lowestPrice: integer("lowest_price"),
+    currentMode: text("current_mode", { enum: ["LIVE", "DEMO"] }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     lastUserRefreshAt: timestamp("last_user_refresh_at", { withTimezone: true }),
@@ -135,6 +142,8 @@ export const priceHistory = pgTable(
     returnAt: timestamp("return_at", { withTimezone: true }),
     bookingUrl: text("booking_url"),
     triggerType: text("trigger_type", { enum: ["user", "background", "deal"] }).notNull(),
+    /** LIVE = real fare, DEMO = test data (never mixed with LIVE), PUBLIC_DEAL = a related deal (not a fare). */
+    dataMode: text("data_mode", { enum: ["LIVE", "DEMO", "PUBLIC_DEAL"] }).default("LIVE").notNull(),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
   },
   (t) => [
@@ -167,7 +176,10 @@ export const deals = pgTable(
   (t) => [index("deals_published_idx").on(t.publishedAt), index("deals_destination_idx").on(t.destination)],
 );
 
-/** Per-watchlist alert state (what was last notified), used for de-duplication and cooldown. */
+/**
+ * DEPRECATED — no longer read or written. Alert de-duplication/cooldown is derived from `alert_history`.
+ * The table is kept (never dropped) so existing databases lose nothing.
+ */
 export const alerts = pgTable(
   "alerts",
   {
@@ -191,7 +203,9 @@ export const alertHistory = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     watchlistId: uuid("watchlist_id").references(() => watchlists.id, { onDelete: "cascade" }).notNull(),
-    alertType: text("alert_type", { enum: ["TARGET_REACHED", "PRICE_DROP", "NEW_LOW", "RELATED_DEAL"] }).notNull(),
+    alertType: text("alert_type", { enum: ["TARGET_REACHED", "PRICE_DROP", "NEW_LOWEST", "RELATED_DEAL"] }).notNull(),
+    /** For RELATED_DEAL: the deal id, so the same deal is not announced twice. */
+    dedupeKey: text("dedupe_key"),
     provider: text("provider"),
     oldPrice: integer("old_price"),
     newPrice: integer("new_price"),
@@ -219,15 +233,17 @@ export const notificationSettings = pgTable("notification_settings", {
 });
 
 /**
- * One row per provider part per refresh attempt. Drives minimum-interval checks
- * (reuse instead of re-calling), and the admin's call counts / last errors.
+ * One row per provider part per search / refresh. Drives minimum-interval checks
+ * (reuse instead of re-calling), and the admin's search counts / last errors.
  * `network` = a real outbound request was made (false for demo / manual / skipped).
  */
-export const providerCalls = pgTable(
-  "provider_calls",
+export const providerRuns = pgTable(
+  "provider_runs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     searchHash: text("search_hash").notNull(),
+    /** One id per user search / refresh (a search asks six services, so six runs share it). */
+    searchId: text("search_id"),
     provider: text("provider").notNull(),
     part: text("part", { enum: ["flight", "deal"] }).notNull(),
     triggerType: text("trigger_type", { enum: ["user", "background"] }).notNull(),
@@ -237,7 +253,7 @@ export const providerCalls = pgTable(
     network: boolean("network").default(false).notNull(),
     error: text("error"),
   },
-  (t) => [index("provider_calls_hash_provider_idx").on(t.searchHash, t.provider, t.part, t.calledAt), index("provider_calls_called_idx").on(t.calledAt)],
+  (t) => [index("provider_runs_hash_provider_idx").on(t.searchHash, t.provider, t.part, t.calledAt), index("provider_runs_called_idx").on(t.calledAt)],
 );
 
 /** Never store API keys or personal data here. */

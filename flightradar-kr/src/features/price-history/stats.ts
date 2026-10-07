@@ -124,26 +124,26 @@ export interface PriceStats {
 
 const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : undefined);
 
-export function priceStats(rows: PriceRow[], opts: { now: Date; registeredPrice?: number; registeredIsDemo?: boolean }): PriceStats {
+export function priceStats(rows: PriceRow[], opts: { now: Date; initialPrice?: number; initialIsDemo?: boolean }): PriceStats {
   const { mode, rows: usable } = selectMode(rows);
   const series = compositeSeries(usable);
   const current = currentPrice(rows, opts.now);
   const within = (days: number) => series.filter((p) => opts.now.getTime() - Date.parse(p.at) <= days * DAY).map((p) => p.price);
   const last30 = within(30);
 
-  const comparable = opts.registeredPrice !== undefined && current !== undefined && Boolean(opts.registeredIsDemo) === current.isDemo;
+  const comparable = opts.initialPrice !== undefined && current !== undefined && Boolean(opts.initialIsDemo) === current.isDemo;
   return {
     mode,
     points: series.length,
     current,
     previous: series.length >= 2 ? series[series.length - 2]!.price : undefined,
-    registered: opts.registeredPrice,
+    registered: opts.initialPrice,
     recentLow: last30.length ? Math.min(...last30) : undefined,
     recentHigh: last30.length ? Math.max(...last30) : undefined,
     avg7: mean(within(7)),
     avg30: mean(last30),
     changeFromRegistered: comparable
-      ? { amount: current!.price - opts.registeredPrice!, percent: Math.round(((current!.price - opts.registeredPrice!) / opts.registeredPrice!) * 1000) / 10 }
+      ? { amount: current!.price - opts.initialPrice!, percent: Math.round(((current!.price - opts.initialPrice!) / opts.initialPrice!) * 1000) / 10 }
       : undefined,
   };
 }

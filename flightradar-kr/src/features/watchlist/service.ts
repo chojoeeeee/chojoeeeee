@@ -9,8 +9,11 @@ import { env, envInt } from "@/lib/env";
 import { NotificationService } from "@/lib/notifications/service";
 import { TelegramNotificationProvider } from "@/lib/notifications/telegram";
 import { getSources } from "@/providers/sources";
-import { refreshWatchlists, runBackgroundScheduler, simulateDemoDrop, type RefreshDeps, type RefreshReport, type WatchlistOutcome } from "./refresh";
+import type { SourceResult } from "@/features/flight-search/result";
+import type { SearchParams } from "@/features/flight-search/schema";
+import { ingestRefresh, offerRows, refreshWatchlists, runBackgroundScheduler, simulateDemoDrop, type RefreshDeps, type RefreshReport, type WatchlistOutcome } from "./refresh";
 import type { CreateWatchlistInput } from "./schema";
+import { watchlistSearchHash } from "./search-key";
 import { defaultNotificationSettings, type NotificationSettings, type Watchlist, type WatchlistStore } from "./types";
 
 /** Single-owner personal app until Supabase Auth is added: every watchlist belongs to this user. */
@@ -31,6 +34,31 @@ export function getStore(): WatchlistStore {
 
 export function storeKind(): "postgres" | "memory" {
   return getDb() ? "postgres" : "memory";
+}
+
+/**
+ * A user search just returned: store the REAL (LIVE) fares of every watchlist tracking exactly this
+ * search. DEMO prices are never stored here, so they can't end up in a real price history.
+ * Failures never break the search.
+ */
+export async function recordSearchPrices(params: SearchParams, result: SourceResult, searchId: string): Promise<number> {
+  try {
+    const live = result.offers.filter((o) => !o.isDemo);
+    if (live.length === 0) return 0;
+    const store = getStore();
+    const hash = watchlistSearchHash({ origin: params.origin, destination: params.destination, departureDate: params.departureDate, returnDate: params.returnDate, cabinClass: params.cabinClass, adults: params.adults, children: params.children, directOnly: params.directOnly, nearbyAirports: params.nearby });
+    const at = new Date().toISOString();
+    let saved = 0;
+    for (const w of await store.listWatchlistsBySearchHash(hash)) {
+      const rows = offerRows(w, live, searchId, at, "user");
+      if (rows.length === 0) continue;
+      await ingestRefresh(w, rows, [], { deps: { store, notifier: getNotifier(), sources: getSources(), skipAlerts: true }, trigger: "user", runId: searchId, at, passive: true });
+      saved += rows.length;
+    }
+    return saved;
+  } catch {
+    return 0;
+  }
 }
 
 export function telegramStatus() {
@@ -81,13 +109,14 @@ export async function createWatchlist(input: CreateWatchlistInput): Promise<{ wa
     cabinClass: input.cabinClass,
     directOnly: input.directOnly,
     nearbyAirports: input.nearbyAirports,
+    flexibleDays: input.flexibleDays,
     targetPrice: input.targetPrice,
     alertPriceDropPercent: input.alertPriceDropPercent,
     alertNewLow: input.alertNewLowest,
     notificationChannel: input.notificationChannel,
     enabled: input.enabled,
   });
-  const report = await refreshWatchlists([w], { ...baseDeps(), trigger: "user", skipAlerts: true, ...getSharedCaches(envInt("SEARCH_CACHE_TTL_SECONDS", 900)) });
+  const report = await refreshWatchlists([w], { ...baseDeps(), trigger: "user", skipAlerts: true, passive: true, ...getSharedCaches(envInt("SEARCH_CACHE_TTL_SECONDS", 900)) });
   return { watchlist: (await store.getWatchlist(w.id)) ?? w, outcome: report.outcomes[0]! };
 }
 

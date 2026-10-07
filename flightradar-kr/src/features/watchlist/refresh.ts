@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { planBackgroundRefresh, type PlannedCall, type SkippedCall } from "@/features/alerts/background-plan";
-import { evaluateAlerts, nextAlertState, type AlertDecision } from "@/features/alerts/evaluate";
+import { evaluateAlerts, type AlertDecision } from "@/features/alerts/evaluate";
+import { deriveAlertState } from "@/features/alerts/state";
 import { buildAlertMessages } from "@/features/alerts/message";
 import { relatedDeals, type RelatedDeal } from "@/features/deal-engine/related";
 import type { SearchCache } from "@/features/flight-search/cache";
@@ -12,7 +13,7 @@ import type { NotificationService } from "@/lib/notifications/service";
 import type { SourceProvider } from "@/providers/types";
 import type { FlightOffer, FlightSearchRequest, TravelDeal } from "@/types/domain";
 import { toSearchRequest } from "./search-key";
-import type { PriceRow, TriggerType, Watchlist, WatchlistStore } from "./types";
+import { dataModeOf, type PriceRow, type TriggerType, type Watchlist, type WatchlistStore } from "./types";
 
 export interface RefreshDeps {
   store: WatchlistStore;
@@ -29,6 +30,8 @@ export interface RefreshDeps {
   userRefreshMinMs?: number;
   /** Do not evaluate/send alerts (used for the initial fetch when a watchlist is created). */
   skipAlerts?: boolean;
+  /** The initial fetch of a new watchlist: does not start the 다시 확인 cool-down. */
+  passive?: boolean;
   /** Injectable for tests. */
   runSources?: (req: FlightSearchRequest, deps: EngineDeps) => Promise<SourceResult[]>;
   newRunId?: () => string;
@@ -74,7 +77,7 @@ export function restrictSources(sources: SourceProvider[], calls: PlannedCall[])
 }
 
 /** The cheapest few fares per provider, as price rows. */
-function offerRows(w: Watchlist, offers: FlightOffer[], runId: string, at: string, trigger: TriggerType): PriceRow[] {
+export function offerRows(w: Watchlist, offers: FlightOffer[], runId: string, at: string, trigger: TriggerType): PriceRow[] {
   const byProvider = new Map<string, Map<string, FlightOffer>>();
   for (const o of offers) {
     const m = byProvider.get(o.provider) ?? new Map<string, FlightOffer>();
@@ -99,6 +102,7 @@ function offerRows(w: Watchlist, offers: FlightOffer[], runId: string, at: strin
         returnAt: o.returnDepartureAt,
         bookingUrl: o.bookingUrl,
         triggerType: trigger,
+        dataMode: dataModeOf(o.isDemo ? "demo" : o.sourceType, trigger),
         fetchedAt: at,
       });
     }
@@ -122,6 +126,7 @@ function dealRows(w: Watchlist, related: RelatedDeal[], runId: string, at: strin
     returnAt: kstMidnight(deal.travelEndDate),
     bookingUrl: deal.bookingUrl,
     triggerType: "deal" as const,
+    dataMode: dataModeOf(deal.isDemo ? "demo" : deal.sourceType, "deal"),
     fetchedAt: at,
   }));
 }
@@ -137,6 +142,8 @@ interface IngestCtx {
   trigger: "user" | "background";
   runId: string;
   at: string;
+  /** A passive search (not a 다시 확인): do not start the manual-refresh cool-down. */
+  passive?: boolean;
 }
 
 /**
@@ -161,11 +168,17 @@ export async function ingestRefresh(w: Watchlist, newRows: PriceRow[], related: 
   const previous = prior.length ? prior[prior.length - 1]!.price : before?.price;
   const newFlightRows = newRows.filter((r) => r.triggerType !== "deal").length;
 
-  const patch: Parameters<WatchlistStore["updateWatchlist"]>[1] = ctx.trigger === "user" ? { lastUserRefreshAt: ctx.at } : { lastBackgroundRefreshAt: ctx.at };
-  if (w.registeredPrice === undefined && current && newFlightRows > 0) {
-    patch.registeredPrice = current.price;
-    patch.registeredIsDemo = current.isDemo;
-    w = { ...w, registeredPrice: current.price, registeredIsDemo: current.isDemo };
+  const patch: Parameters<WatchlistStore["updateWatchlist"]>[1] = ctx.passive ? { lastCheckedAt: ctx.at } : ctx.trigger === "user" ? { lastUserRefreshAt: ctx.at, lastCheckedAt: ctx.at } : { lastBackgroundRefreshAt: ctx.at, lastCheckedAt: ctx.at };
+  if (current && newFlightRows > 0) {
+    // Current and lowest price within ONE data mode (DEMO never mixes into LIVE).
+    patch.currentPrice = current.price;
+    patch.currentMode = current.isDemo ? "DEMO" : "LIVE";
+    patch.lowestPrice = Math.min(...series.map((p) => p.price), current.price);
+  }
+  if (w.initialPrice === undefined && current && newFlightRows > 0) {
+    patch.initialPrice = current.price;
+    patch.initialIsDemo = current.isDemo;
+    w = { ...w, initialPrice: current.price, initialIsDemo: current.isDemo };
   }
   await store.updateWatchlist(w.id, patch);
 
@@ -175,7 +188,7 @@ export async function ingestRefresh(w: Watchlist, newRows: PriceRow[], related: 
   if (ctx.deps.skipAlerts || (newFlightRows === 0 && related.length === 0)) return outcome;
 
   const settings = await store.getNotificationSettings(w.userId);
-  const state = await store.getAlertState(w.id);
+  const state = deriveAlertState(w.id, await store.listAlertHistory({ watchlistId: w.id, limit: 1000 }), { targetPrice: w.targetPrice, priorSeries: prior });
   const decisions = evaluateAlerts({
     watchlist: w,
     settings,
@@ -202,6 +215,7 @@ export async function ingestRefresh(w: Watchlist, newRows: PriceRow[], related: 
         provider: d.type === "RELATED_DEAL" ? d.deal?.deal.provider : current?.provider,
         oldPrice: d.oldPrice,
         newPrice: d.newPrice,
+        dedupeKey: d.type === "RELATED_DEAL" ? d.deal?.deal.id : undefined,
         isDemo: b.message.isDemo,
         sentAt: now.toISOString(),
         status,
@@ -213,11 +227,10 @@ export async function ingestRefresh(w: Watchlist, newRows: PriceRow[], related: 
     else if (res.error) outcome.errors.push(res.error);
   }
   outcome.notified = delivered.length > 0;
-  await store.saveAlertState(nextAlertState(state, { notified: delivered, currentPrice: newFlightRows > 0 ? current?.price : undefined, currentIsDemo: current?.isDemo ?? false, targetPrice: w.targetPrice, now }));
   return outcome;
 }
 
-async function logCalls(store: WatchlistStore, hash: string, trigger: "user" | "background", results: SourceResult[], at: string, report: RefreshReport) {
+async function logCalls(store: WatchlistStore, hash: string, searchId: string, trigger: "user" | "background", results: SourceResult[], at: string, report: RefreshReport) {
   for (const { run } of results) {
     for (const part of ["flight", "deal"] as const) {
       const o = run.parts?.[part];
@@ -226,7 +239,7 @@ async function logCalls(store: WatchlistStore, hash: string, trigger: "user" | "
       // Network only if a real request was made: not demo data, not a cache hit, and not a refusal before any request.
       const network = !run.isDemo && !run.cached && (failed ? NETWORK_FAILURES.includes(run.status) : true);
       const status = failed ? run.status : o.count > 0 ? "ok" : "no_results";
-      await store.logProviderCall({ searchHash: hash, provider: run.provider, part, triggerType: trigger, calledAt: at, status, resultCount: o.count, network, error: failed && NETWORK_FAILURES.includes(run.status) ? run.reason : undefined }); // only technical failures are "errors"; manual/api_required/etc. are states
+      await store.logProviderRun({ searchHash: hash, searchId, provider: run.provider, part, triggerType: trigger, calledAt: at, status, resultCount: o.count, network, error: failed && NETWORK_FAILURES.includes(run.status) ? run.reason : undefined }); // only technical failures are "errors"; manual/api_required/etc. are states
       report.providerCalls.push({ searchHash: hash, provider: run.provider, part, network, status });
       if (network) report.networkCalls++;
     }
@@ -281,7 +294,7 @@ export async function refreshWatchlists(watchlists: Watchlist[], deps: RefreshDe
       let sources = deps.sources;
       if (deps.trigger === "background") {
         // Reuse instead of re-calling: a part called (over the network) more recently than its minimum interval is not due.
-        const calls = await deps.store.listProviderCalls({ searchHash: hash, since: new Date(now().getTime() - 7 * DAY).toISOString() });
+        const calls = await deps.store.listProviderRuns({ searchHash: hash, since: new Date(now().getTime() - 7 * DAY).toISOString() });
         const lastCalledAt: Record<string, string> = {};
         for (const c of calls) if (c.network && (!lastCalledAt[`${c.provider}:${c.part}`] || c.calledAt > lastCalledAt[`${c.provider}:${c.part}`]!)) lastCalledAt[`${c.provider}:${c.part}`] = c.calledAt;
         const plan = planBackgroundRefresh(deps.sources, { now: now(), lastCalledAt });
@@ -301,14 +314,14 @@ export async function refreshWatchlists(watchlists: Watchlist[], deps: RefreshDe
       const at = now().toISOString();
       const runId = deps.newRunId?.() ?? randomUUID();
       const results = await (deps.runSources ?? runSources)(request, { sources, trigger: deps.trigger, timeoutMs: deps.timeoutMs, fxRates: deps.fxRates, cache: deps.cache, dealCache: deps.dealCache, now });
-      await logCalls(deps.store, hash, deps.trigger, results, at, report);
+      await logCalls(deps.store, hash, runId, deps.trigger, results, at, report);
 
       const offers = results.flatMap((r) => r.offers);
       const related = relatedDealsFor(request, results.flatMap((r) => r.deals));
       for (const w of ws) {
         try {
           const rows = [...offerRows(w, offers, runId, at, deps.trigger), ...dealRows(w, related, runId, at)];
-          report.outcomes.push(await ingestRefresh(w, rows, related, { deps, trigger: deps.trigger, runId, at }));
+          report.outcomes.push(await ingestRefresh(w, rows, related, { deps, trigger: deps.trigger, runId, at, passive: deps.passive }));
         } catch (e) {
           report.outcomes.push(empty(w, "error", { errors: [e instanceof Error ? e.message.slice(0, 200) : "refresh failed"] }));
         }
@@ -334,6 +347,6 @@ export async function simulateDemoDrop(w: Watchlist, opts: Pick<RefreshDeps, "st
   const at = now.toISOString();
   const price = Math.max(1000, Math.round((cur.price * (1 - (opts.percent ?? 10) / 100)) / 100) * 100);
   const runId = randomUUID();
-  const row: PriceRow = { watchlistId: w.id, runId, provider: cur.provider, sourceType: "demo", flightKey: "demo-sim", price, currency: "KRW", airline: cur.airline, bookingUrl: cur.bookingUrl, triggerType: "user", fetchedAt: at };
+  const row: PriceRow = { watchlistId: w.id, runId, provider: cur.provider, sourceType: "demo", flightKey: "demo-sim", price, currency: "KRW", airline: cur.airline, bookingUrl: cur.bookingUrl, triggerType: "user", dataMode: "DEMO", fetchedAt: at };
   return ingestRefresh(w, [row], [], { deps: opts, trigger: "user", runId, at });
 }

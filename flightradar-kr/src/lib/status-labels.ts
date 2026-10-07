@@ -51,7 +51,7 @@ export function userStatus(row: RowLike): UserStatus | undefined {
     case "timeout":
     case "error":
     case "unavailable":
-      return { text: "일시적으로 확인하지 못했어요", tone: "problem", hasData: false };
+      return { text: "현재 이 서비스의 가격을 확인할 수 없습니다.", tone: "problem", hasData: false };
     case "no_results":
       return { text: row.role === "deal" ? "지금 맞는 특가가 없어요" : "조건에 맞는 항공권이 없어요", tone: "empty", hasData: false };
     default:

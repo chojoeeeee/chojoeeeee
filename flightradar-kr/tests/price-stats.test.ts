@@ -6,7 +6,7 @@ const T = (h: number) => new Date(Date.UTC(2026, 9, 1, h)).toISOString(); // 202
 const NOW = new Date(Date.UTC(2026, 9, 7, 12));
 
 function r(over: Partial<PriceRow> & { price: number; fetchedAt: string }): PriceRow {
-  return { watchlistId: "w", runId: over.fetchedAt + (over.provider ?? "a"), provider: "a", sourceType: "api", flightKey: "k", currency: "KRW", triggerType: "user", ...over };
+  return { watchlistId: "w", runId: over.fetchedAt + (over.provider ?? "a"), provider: "a", sourceType: "api", flightKey: "k", currency: "KRW", triggerType: "user", dataMode: over.sourceType === "demo" ? "DEMO" : over.triggerType === "deal" ? "PUBLIC_DEAL" : "LIVE", ...over };
 }
 
 describe("data mode: DEMO and LIVE are never mixed", () => {
@@ -31,8 +31,8 @@ describe("data mode: DEMO and LIVE are never mixed", () => {
   });
   it("registered-vs-current change is only computed within the same data mode", () => {
     const rows = [r({ price: 169000, fetchedAt: T(0), sourceType: "demo" })];
-    expect(priceStats(rows, { now: NOW, registeredPrice: 189000, registeredIsDemo: true }).changeFromRegistered).toEqual({ amount: -20000, percent: -10.6 });
-    expect(priceStats(rows, { now: NOW, registeredPrice: 189000, registeredIsDemo: false }).changeFromRegistered).toBeUndefined();
+    expect(priceStats(rows, { now: NOW, initialPrice: 189000, initialIsDemo: true }).changeFromRegistered).toEqual({ amount: -20000, percent: -10.6 });
+    expect(priceStats(rows, { now: NOW, initialPrice: 189000, initialIsDemo: false }).changeFromRegistered).toBeUndefined();
   });
 });
 
@@ -73,7 +73,7 @@ describe("price statistics", () => {
     r({ price: 179000, fetchedAt: new Date(Date.UTC(2026, 9, 7)).toISOString() }),
   ];
   it("computes current, previous, low/high, 7/30 day averages and change from registration", () => {
-    const s = priceStats(rows, { now: NOW, registeredPrice: 219000, registeredIsDemo: false });
+    const s = priceStats(rows, { now: NOW, initialPrice: 219000, initialIsDemo: false });
     expect(s).toMatchObject({ mode: "live", points: 4, previous: 190000, recentLow: 179000, recentHigh: 219000, avg7: 189667, avg30: 197000 });
     expect(s.current?.price).toBe(179000);
     expect(s.changeFromRegistered).toEqual({ amount: -40000, percent: -18.3 }); // spec example

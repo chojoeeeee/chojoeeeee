@@ -70,6 +70,15 @@ export interface MockOptions {
   now?: () => Date;
 }
 
+/**
+ * DEMO_PRICE_OFFSET (KRW, may be negative): shifts every DEMO fare so a price move can be rehearsed
+ * deterministically (lower it, then press 다시 확인). DEMO data only — never touches real fares.
+ */
+function demoPriceOffset(): number {
+  const n = Number(process.env.DEMO_PRICE_OFFSET);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
 export function generateDemoOffers(query: FlightSearchQuery, opts: MockOptions): FlightOffer[] {
   const outOffset = airportOffsetMinutes(query.origin);
   const destOffset = airportOffsetMinutes(query.destination);
@@ -84,7 +93,7 @@ export function generateDemoOffers(query: FlightSearchQuery, opts: MockOptions):
     .filter((t) => !query.directOnly || t.stops === 0)
     .map((t) => {
       const noise = 0.97 + unit(`${opts.provider}-${t.code}-${query.departureDate}`) * 0.08;
-      const perPerson = Math.round((base * t.priceMul * opts.bias * noise) / 100) * 100;
+      const perPerson = Math.max(10_000, Math.round((base * t.priceMul * opts.bias * noise) / 100) * 100 + demoPriceOffset());
       const legMinutes = flightMinutes + t.extraMinutes;
 
       const outDepMs = localToEpoch(query.departureDate, t.outDep, outOffset);

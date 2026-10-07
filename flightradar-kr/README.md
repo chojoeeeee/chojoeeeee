@@ -339,6 +339,25 @@ Watchlist Engine과 Provider Search Engine을 분리한다. Watchlist 쪽은 Pro
 
 `DEMO_MODE=true` + `TELEGRAM_DRY_RUN=true`: 검색 → 🔔 이 가격 추적하기(등록 가격 = 현재 DEMO 최저가) → `/admin/watchlists`의 **🧪 DEMO 가격 하락**(DEMO_MODE 전용; DEMO 가격에만 동작, 10% 하락 가정) → 같은 Alert Engine이 실행 → 목표가에 닿으면 Dry Run Telegram 메시지 1개 → 다시 눌러도 중복 알림 없음.
 
+## 실제 사용 모드 (영구 저장 · 알림)
+
+| 항목 | 내용 |
+|---|---|
+| 저장소 | `DATABASE_URL`이 있으면 PostgreSQL(Supabase), 없으면 메모리(재시작 시 초기화). 같은 `WatchlistStore` 인터페이스 |
+| 테이블 | `watchlists`, `price_history`(data_mode = LIVE / DEMO / PUBLIC_DEAL), `alert_history`(dedupe_key), `notification_settings`, `provider_runs` |
+| Migration | `npm run db:migrate` (`drizzle/0002_real_use_storage.sql`: 기존 데이터 삭제 없음, `provider_calls` → `provider_runs` 이름 변경 + 컬럼 추가 + 값 보정) |
+| 저장 흐름 | 검색 → "이 항공권 가격 알림 받기" + 목표 가격 → DB 저장 → 새로고침/서버 재시작 후에도 유지 |
+| 가격 기록 | 사용자 검색에서 **LIVE 가격만** 같은 검색의 Watchlist에 기록 (DEMO 가격은 실제 기록에 섞이지 않음) |
+| 다시 확인 | 사용자 검색 엔진 · 정책이 허용한 서비스만 → price_history → currentPrice/lowestPrice → 목표 판단 → Alert Engine → 발송 |
+| 중복 방지 | 알림 상태는 `alert_history`에서 계산합니다. 재시작·재배포 후에도 같은 알림을 다시 보내지 않습니다 |
+| 연결 우선순위 | Skyscanner → Trip.com → 알리항공권 → 캐치프로그 → 출국의 신 → 플레이윙즈 (정책·승인 우회 없음) |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_DRY_RUN`. DEMO 알림에는 `[테스트]`가 붙습니다 |
+| 관리자 | `/admin`: Watchlist 수, LIVE Provider 수, Provider 상태, 오늘 검색 수, 가격 기록 수, 알림 수, 최근 오류, DB·Telegram 상태 |
+
+로컬에서 실제 Postgres로 시험하기: `DATABASE_URL=postgres://… npm run db:migrate` 후
+`DEMO_MODE=true TELEGRAM_DRY_RUN=true DEMO_PRICE_OFFSET=34800 npm run start` → 저장 → 서버를 `DEMO_PRICE_OFFSET=4800`으로 재시작 → "다시 확인"
+(199,000원 → 169,000원, 목표 170,000원 도달 알림).
+
 ## 폴더 구조
 
 ```

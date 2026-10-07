@@ -24,7 +24,7 @@ export default async function AdminWatchlists() {
   const store = getStore();
   const todayStart = kstDayStart(now);
   const since = new Date(now.getTime() - 7 * 86_400_000).toISOString();
-  const [watchlists, calls, alerts] = await Promise.all([store.listAllWatchlists(), store.listProviderCalls({ since }), store.listAlertHistory({ since, limit: 500 })]);
+  const [watchlists, calls, alerts] = await Promise.all([store.listAllWatchlists(), store.listProviderRuns({ since }), store.listAlertHistory({ since, limit: 500 })]);
   const stats = adminStats({ watchlists, calls, alerts, todayStart });
   const plan = planBackgroundRefresh(getSources(), { now });
   const names = sourceNames();

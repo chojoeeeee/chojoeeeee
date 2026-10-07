@@ -13,7 +13,7 @@ import { formatKrw, formatMonthDay, timeAgo } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const ALERT_LABEL = { TARGET_REACHED: "목표가 도달", PRICE_DROP: "가격 하락", NEW_LOW: "새 최저가", RELATED_DEAL: "관련 특가" } as const;
+const ALERT_LABEL = { TARGET_REACHED: "목표가 도달", PRICE_DROP: "가격 하락", NEW_LOWEST: "새 최저가", RELATED_DEAL: "관련 특가" } as const;
 
 export default async function WatchlistDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

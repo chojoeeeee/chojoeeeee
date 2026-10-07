@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseSearchParams, toRequest } from "@/features/flight-search/schema";
 import { searchSource } from "@/features/flight-search/service";
+import { recordSearchPrices } from "@/features/watchlist/service";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +15,7 @@ export async function GET(req: Request) {
   }
   const result = await searchSource(provider, toRequest(parsed.data));
   if (!result) return NextResponse.json({ error: "unknown_provider" }, { status: 404 });
+  // A user search with real fares also feeds the price history of matching watchlists (never DEMO prices).
+  await recordSearchPrices(parsed.data, result, params.get("searchId")?.slice(0, 64) || crypto.randomUUID());
   return NextResponse.json(result);
 }

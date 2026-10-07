@@ -10,7 +10,7 @@ export default async function NotificationSettingsPage() {
     <div className="space-y-5">
       <h1 className="text-2xl font-extrabold">알림 설정</h1>
       <p className={`rounded-2xl p-4 text-sm font-medium ${tg.ready ? "bg-green-50 text-green-800" : "bg-soft text-muted"}`}>
-        {tg.ready ? "✓ Telegram 알림이 연결되어 있어요" : "Telegram 알림이 아직 연결되지 않았어요"}
+        {tg.ready ? "✓ 알림을 받을 수 있어요" : "알림을 받을 준비가 아직 안 됐어요"}
       </p>
       <NotificationSettingsForm
         initial={{ enabled: settings.enabled, targetAlerts: settings.targetAlerts, newLowAlerts: settings.newLowAlerts, priceDropAlerts: settings.priceDropAlerts, relatedDealAlerts: settings.relatedDealAlerts }}

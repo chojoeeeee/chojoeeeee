@@ -6,7 +6,7 @@ import { formatKrw } from "@/lib/format";
 import type { FlightSearchRequest } from "@/types/domain";
 
 /** Big bottom button + a small bottom sheet: set a target price, done. */
-export function TrackCta({ request, cheapest }: { request: FlightSearchRequest; cheapest?: { price: number; isDemo: boolean } }) {
+export function TrackCta({ request, cheapest, flexDays = 0 }: { request: FlightSearchRequest; cheapest?: { price: number; isDemo: boolean }; flexDays?: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,6 +33,7 @@ export function TrackCta({ request, cheapest }: { request: FlightSearchRequest; 
           cabinClass: request.cabinClass,
           directOnly: request.directOnly,
           nearbyAirports: request.origins.length > 1 || request.destinations.length > 1,
+          flexibleDays: flexDays,
           targetPrice: raw ? Number(raw) : undefined,
           alertPriceDropPercent: 5,
           alertNewLowest: true,

@@ -1,17 +1,15 @@
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/lib/db/schema";
 import { watchlistSearchHash } from "./search-key";
 import {
   defaultNotificationSettings,
-  emptyAlertState,
   type AlertHistoryEntry,
-  type AlertState,
   type AlertType,
   type NewWatchlist,
   type NotificationSettings,
   type PriceRow,
-  type ProviderCallLog,
+  type ProviderRunLog,
   type Watchlist,
   type WatchlistPatch,
   type WatchlistStore,
@@ -37,16 +35,21 @@ const toWatchlist = (r: WRow): Watchlist => ({
   cabinClass: r.cabinClass as Watchlist["cabinClass"],
   directOnly: r.directOnly,
   nearbyAirports: r.nearbyAirports,
+  flexibleDays: r.flexibleDays,
   targetPrice: r.targetPrice ?? undefined,
   alertPriceDropPercent: r.alertPriceDropPercent,
   alertNewLow: r.alertNewLow,
   notificationChannel: r.notificationChannel,
   enabled: r.enabled,
   searchHash: r.searchHash,
-  registeredPrice: r.registeredPrice ?? undefined,
-  registeredIsDemo: r.registeredIsDemo,
+  initialPrice: r.initialPrice ?? undefined,
+  initialIsDemo: r.initialIsDemo,
+  currentPrice: r.currentPrice ?? undefined,
+  lowestPrice: r.lowestPrice ?? undefined,
+  currentMode: r.currentMode ?? undefined,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
+  lastCheckedAt: iso(r.lastCheckedAt),
   lastUserRefreshAt: iso(r.lastUserRefreshAt),
   lastBackgroundRefreshAt: iso(r.lastBackgroundRefreshAt),
 });
@@ -74,14 +77,15 @@ export class DrizzleWatchlistStore implements WatchlistStore {
         cabinClass: input.cabinClass,
         directOnly: input.directOnly,
         nearbyAirports: input.nearbyAirports,
+        flexibleDays: input.flexibleDays ?? 0,
         targetPrice: input.targetPrice ?? null,
         alertPriceDropPercent: input.alertPriceDropPercent,
         alertNewLow: input.alertNewLow,
         notificationChannel: input.notificationChannel,
         enabled: input.enabled ?? true,
         searchHash: watchlistSearchHash(input),
-        registeredPrice: input.registeredPrice ?? null,
-        registeredIsDemo: input.registeredIsDemo ?? false,
+        initialPrice: input.initialPrice ?? null,
+        initialIsDemo: input.initialIsDemo ?? false,
       })
       .returning();
     return toWatchlist(row!);
@@ -94,6 +98,9 @@ export class DrizzleWatchlistStore implements WatchlistStore {
   async listWatchlists(userId: string) {
     return (await this.db.select().from(schema.watchlists).where(eq(schema.watchlists.userId, userId)).orderBy(asc(schema.watchlists.createdAt))).map(toWatchlist);
   }
+  async listWatchlistsBySearchHash(searchHash: string) {
+    return (await this.db.select().from(schema.watchlists).where(eq(schema.watchlists.searchHash, searchHash)).orderBy(asc(schema.watchlists.createdAt))).map(toWatchlist);
+  }
   async listAllWatchlists() {
     return (await this.db.select().from(schema.watchlists).orderBy(asc(schema.watchlists.createdAt))).map(toWatchlist);
   }
@@ -103,8 +110,13 @@ export class DrizzleWatchlistStore implements WatchlistStore {
     if (patch.alertPriceDropPercent !== undefined) set.alertPriceDropPercent = patch.alertPriceDropPercent;
     if (patch.alertNewLow !== undefined) set.alertNewLow = patch.alertNewLow;
     if (patch.enabled !== undefined) set.enabled = patch.enabled;
-    if (patch.registeredPrice !== undefined) set.registeredPrice = patch.registeredPrice;
-    if (patch.registeredIsDemo !== undefined) set.registeredIsDemo = patch.registeredIsDemo;
+    if (patch.flexibleDays !== undefined) set.flexibleDays = patch.flexibleDays;
+    if (patch.currentPrice !== undefined) set.currentPrice = patch.currentPrice;
+    if (patch.lowestPrice !== undefined) set.lowestPrice = patch.lowestPrice;
+    if (patch.currentMode !== undefined) set.currentMode = patch.currentMode;
+    if (patch.lastCheckedAt !== undefined) set.lastCheckedAt = new Date(patch.lastCheckedAt);
+    if (patch.initialPrice !== undefined) set.initialPrice = patch.initialPrice;
+    if (patch.initialIsDemo !== undefined) set.initialIsDemo = patch.initialIsDemo;
     if (patch.lastUserRefreshAt !== undefined) set.lastUserRefreshAt = new Date(patch.lastUserRefreshAt);
     if (patch.lastBackgroundRefreshAt !== undefined) set.lastBackgroundRefreshAt = new Date(patch.lastBackgroundRefreshAt);
     const [row] = await this.db.update(schema.watchlists).set(set).where(eq(schema.watchlists.id, id)).returning();
@@ -131,6 +143,7 @@ export class DrizzleWatchlistStore implements WatchlistStore {
         returnAt: date(r.returnAt),
         bookingUrl: r.bookingUrl ?? null,
         triggerType: r.triggerType,
+        dataMode: r.dataMode,
         fetchedAt: new Date(r.fetchedAt),
       })),
     );
@@ -152,34 +165,14 @@ export class DrizzleWatchlistStore implements WatchlistStore {
       returnAt: iso(r.returnAt),
       bookingUrl: r.bookingUrl ?? undefined,
       triggerType: r.triggerType,
+      dataMode: r.dataMode,
       fetchedAt: r.fetchedAt.toISOString(),
     }));
   }
 
-  async getAlertState(watchlistId: string): Promise<AlertState> {
-    const [r] = await this.db.select().from(schema.alerts).where(eq(schema.alerts.watchlistId, watchlistId));
-    if (!r) return emptyAlertState(watchlistId);
-    return {
-      watchlistId,
-      lastNotifiedPrice: r.lastNotifiedPrice ?? undefined,
-      lastNotifiedIsDemo: r.lastNotifiedIsDemo,
-      lastNotifiedAt: iso(r.lastNotifiedAt),
-      targetActive: r.targetActive,
-      lastByType: r.lastByType as AlertState["lastByType"],
-      notifiedDeals: r.notifiedDeals,
-    };
-  }
-  async saveAlertState(s: AlertState) {
-    const values = {
-      watchlistId: s.watchlistId,
-      lastNotifiedPrice: s.lastNotifiedPrice ?? null,
-      lastNotifiedIsDemo: s.lastNotifiedIsDemo,
-      lastNotifiedAt: date(s.lastNotifiedAt),
-      targetActive: s.targetActive,
-      lastByType: s.lastByType as Record<string, string>,
-      notifiedDeals: s.notifiedDeals,
-    };
-    await this.db.insert(schema.alerts).values(values).onConflictDoUpdate({ target: schema.alerts.watchlistId, set: values });
+  async countPriceRows() {
+    const [r] = await this.db.select({ n: count() }).from(schema.priceHistory);
+    return r?.n ?? 0;
   }
   async addAlertHistory(e: AlertHistoryEntry) {
     await this.db.insert(schema.alertHistory).values({
@@ -188,6 +181,7 @@ export class DrizzleWatchlistStore implements WatchlistStore {
       provider: e.provider ?? null,
       oldPrice: e.oldPrice ?? null,
       newPrice: e.newPrice ?? null,
+      dedupeKey: e.dedupeKey ?? null,
       isDemo: e.isDemo,
       sentAt: new Date(e.sentAt),
       status: e.status,
@@ -205,6 +199,7 @@ export class DrizzleWatchlistStore implements WatchlistStore {
       provider: r.provider ?? undefined,
       oldPrice: r.oldPrice ?? undefined,
       newPrice: r.newPrice ?? undefined,
+      dedupeKey: r.dedupeKey ?? undefined,
       isDemo: r.isDemo,
       sentAt: r.sentAt.toISOString(),
       status: r.status,
@@ -224,9 +219,10 @@ export class DrizzleWatchlistStore implements WatchlistStore {
     await this.db.insert(schema.notificationSettings).values(values).onConflictDoUpdate({ target: schema.notificationSettings.userId, set: values });
   }
 
-  async logProviderCall(c: ProviderCallLog) {
-    await this.db.insert(schema.providerCalls).values({
+  async logProviderRun(c: ProviderRunLog) {
+    await this.db.insert(schema.providerRuns).values({
       searchHash: c.searchHash,
+      searchId: c.searchId ?? null,
       provider: c.provider,
       part: c.part,
       triggerType: c.triggerType,
@@ -237,9 +233,18 @@ export class DrizzleWatchlistStore implements WatchlistStore {
       error: c.error ?? null,
     });
   }
-  async listProviderCalls(opts?: { searchHash?: string; since?: string }): Promise<ProviderCallLog[]> {
-    const conds = [opts?.searchHash ? eq(schema.providerCalls.searchHash, opts.searchHash) : undefined, opts?.since ? gte(schema.providerCalls.calledAt, new Date(opts.since)) : undefined].filter((c) => c !== undefined);
-    const rows = await this.db.select().from(schema.providerCalls).where(conds.length ? and(...conds) : undefined).orderBy(asc(schema.providerCalls.calledAt));
-    return rows.map((r) => ({ id: r.id, searchHash: r.searchHash, provider: r.provider, part: r.part, triggerType: r.triggerType, calledAt: r.calledAt.toISOString(), status: r.status, resultCount: r.resultCount, network: r.network, error: r.error ?? undefined }));
+  async listProviderRuns(opts?: { searchHash?: string; since?: string }): Promise<ProviderRunLog[]> {
+    const conds = [opts?.searchHash ? eq(schema.providerRuns.searchHash, opts.searchHash) : undefined, opts?.since ? gte(schema.providerRuns.calledAt, new Date(opts.since)) : undefined].filter((c) => c !== undefined);
+    const rows = await this.db.select().from(schema.providerRuns).where(conds.length ? and(...conds) : undefined).orderBy(asc(schema.providerRuns.calledAt));
+    return rows.map((r) => ({ id: r.id, searchHash: r.searchHash, searchId: r.searchId ?? undefined, provider: r.provider, part: r.part, triggerType: r.triggerType, calledAt: r.calledAt.toISOString(), status: r.status, resultCount: r.resultCount, network: r.network, error: r.error ?? undefined }));
+  }
+
+  async health() {
+    try {
+      await this.db.execute(sql`select 1`);
+      return { ok: true, kind: "postgres" as const };
+    } catch (e) {
+      return { ok: false, kind: "postgres" as const, error: e instanceof Error ? e.message : "connection failed" };
+    }
   }
 }

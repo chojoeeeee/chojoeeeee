@@ -221,7 +221,7 @@ export function SearchRunner({ request, query, sources, label, flexDays, today }
         </ul>
       </section>
 
-      <TrackCta request={request} cheapest={cheapest ? { price: cheapest.pricePerPerson, isDemo: cheapest.isDemo } : undefined} />
+      <TrackCta request={request} flexDays={flexDays} cheapest={cheapest ? { price: cheapest.pricePerPerson, isDemo: cheapest.isDemo } : undefined} />
     </div>
   );
 }

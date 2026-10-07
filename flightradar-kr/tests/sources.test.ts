@@ -6,7 +6,7 @@ import { request } from "./helpers";
 vi.spyOn(console, "info").mockImplementation(() => {});
 afterEach(() => vi.unstubAllEnvs());
 
-const names = ["catchfrog", "skyscanner", "playwings", "chulguk", "ali-flight", "trip"];
+const names = ["skyscanner", "trip", "ali-flight", "catchfrog", "chulguk", "playwings"];
 
 describe("the six required sources", () => {
   it("are all registered, with the right role on the result screen", () => {

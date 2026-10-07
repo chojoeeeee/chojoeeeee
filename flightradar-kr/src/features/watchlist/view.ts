@@ -23,7 +23,7 @@ export const STATUS_TEXT: Record<StatusKey, string> = {
 };
 
 export function buildView(w: Watchlist, rows: PriceRow[], now: Date): WatchlistView {
-  const stats = priceStats(rows, { now, registeredPrice: w.registeredPrice, registeredIsDemo: w.registeredIsDemo });
+  const stats = priceStats(rows, { now, initialPrice: w.initialPrice, initialIsDemo: w.initialIsDemo });
   const { rows: usable } = selectMode(rows);
   const series = compositeSeries(usable);
   const cur = currentPrice(rows, now);

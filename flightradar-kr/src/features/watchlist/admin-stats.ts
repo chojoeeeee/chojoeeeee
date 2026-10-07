@@ -1,4 +1,4 @@
-import type { AlertHistoryEntry, ProviderCallLog, Watchlist } from "./types";
+import type { AlertHistoryEntry, ProviderRunLog, Watchlist } from "./types";
 
 export interface ProviderCallSummary {
   provider: string;
@@ -9,7 +9,7 @@ export interface ProviderCallSummary {
 }
 
 /** Per-provider call statistics for the admin screen. `todayStart` = ISO of the start of today (KST). */
-export function summarizeProviderCalls(calls: ProviderCallLog[], todayStart: string): Record<string, ProviderCallSummary> {
+export function summarizeProviderCalls(calls: ProviderRunLog[], todayStart: string): Record<string, ProviderCallSummary> {
   const out: Record<string, ProviderCallSummary> = {};
   for (const c of [...calls].sort((a, b) => a.calledAt.localeCompare(b.calledAt))) {
     const s = (out[c.provider] ??= { provider: c.provider, networkCallsToday: 0 });
@@ -31,7 +31,7 @@ export interface WatchlistAdminStats {
   recentErrors: { at: string; source: string; message: string }[];
 }
 
-export function adminStats(input: { watchlists: Watchlist[]; calls: ProviderCallLog[]; alerts: AlertHistoryEntry[]; todayStart: string }): WatchlistAdminStats {
+export function adminStats(input: { watchlists: Watchlist[]; calls: ProviderRunLog[]; alerts: AlertHistoryEntry[]; todayStart: string }): WatchlistAdminStats {
   const today = input.calls.filter((c) => c.calledAt >= input.todayStart);
   const searches = (t: "user" | "background") => new Set(today.filter((c) => c.triggerType === t).map((c) => `${c.searchHash}@${c.calledAt}`)).size;
   const errors = [
