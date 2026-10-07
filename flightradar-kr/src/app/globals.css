@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f8fb;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --card: #ffffff;
+  --line: #e2e8f0;
+  --brand: #1d4ed8;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+}
