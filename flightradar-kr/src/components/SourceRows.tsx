@@ -1,6 +1,6 @@
 import type { SourceRow, SourceStatus } from "@/features/flight-search/result";
 import { formatKrw, formatKstClock } from "@/lib/format";
-import { DemoBadge } from "./DemoBadge";
+import { SourceBadge, badgeFor, connectionLabel } from "./SourceBadge";
 
 const STATUS_TEXT: Record<SourceStatus, string> = {
   ok: "✓ 조회 성공",
@@ -32,13 +32,15 @@ function SourceRowView({ row }: { row: SourceRow }) {
           <p className="font-semibold">
             {row.rank !== undefined && <span className="mr-2 text-sm text-muted">{row.rank}위</span>}
             {row.displayName}
-            {row.isDemo && <DemoBadge className="ml-2" />}
+            <SourceBadge row={row} />
           </p>
-          <p className="text-xs text-muted">{STATUS_TEXT[row.status]} · {attempted}</p>
+          <p className="text-xs text-muted">{row.isDemo && (row.status === "ok" || row.status === "deals_only") ? "데모 데이터 표시 중 (실제 조회 아님)" : STATUS_TEXT[row.status]} · {attempted}</p>
+          {badgeFor(row) !== "LIVE" && connectionLabel(row.provider) && <p className="text-xs text-muted">{connectionLabel(row.provider)}</p>}
         </div>
         {offer && (
           <div className="text-right">
             <p className="text-xl font-bold">{formatKrw(offer.pricePerPerson)}</p>
+            {offer.seller && <p className="text-xs text-muted">판매처 {offer.seller}</p>}
             <p className="text-xs">
               {row.diffFromBest === 0 ? <span className="font-semibold text-green-700">최저가</span> : <span className="text-muted">+{formatKrw(row.diffFromBest ?? 0)}</span>}
             </p>

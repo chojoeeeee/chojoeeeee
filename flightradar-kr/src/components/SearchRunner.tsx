@@ -71,7 +71,7 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
   if (rec.recommended) tags.set(rec.recommended.key, "⭐ 추천");
   if (rec.cheapest) tags.set(rec.cheapest.key, "🏆 최저가");
   const groups = sortGroups(result.groups, sort);
-  const { total, confirmed } = result.summary;
+  const { total, confirmed, live } = result.summary;
 
   return (
     <div className="space-y-5">
@@ -82,7 +82,11 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
           {request.origins.length > 1 && " · 주변 공항 포함"}{request.directOnly && " · 직항만"}
         </p>
         <p className="mt-1 text-sm font-medium">
-          {total}개 서비스 중 <strong>{confirmed}개</strong> 서비스에서 정보를 확인했습니다.
+          {live === 0 && confirmed > 0 ? (
+            <>{total}개 서비스 중 실제로 확인한 서비스 <strong>0개</strong> · 데모 데이터 {confirmed}개 표시 중</>
+          ) : (
+            <>{total}개 서비스 중 <strong>{confirmed}개</strong> 서비스에서 정보를 확인했습니다.</>
+          )}
         </p>
       </header>
 
@@ -94,7 +98,7 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
 
       {cheapest ? (
         <section className="rounded-2xl bg-brand p-5 text-white">
-          <p className="text-sm opacity-80">현재 확인한 {confirmed}개 서비스 중 가장 저렴한 조건 (1인 기준)</p>
+          <p className="text-sm opacity-80">{result.dataMode === "demo" ? "데모 데이터 중 가장 저렴한 조건" : `현재 확인한 ${confirmed}개 서비스 중 가장 저렴한 조건`} (1인 기준)</p>
           <p className="text-3xl font-bold">{formatKrw(cheapest.pricePerPerson)}</p>
           <p className="mt-1 text-xs opacity-80">{names[cheapest.provider] ?? cheapest.provider} · {cheapest.airline}</p>
         </section>

@@ -59,3 +59,13 @@ export interface SourceProvider {
   readonly flight?: FlightProvider;
   readonly deal?: DealProvider;
 }
+
+/**
+ * Placeholder for a provider that can only be queried with browser automation.
+ * NOTHING implements this yet and no scraping runs. A browser provider may only be
+ * added for a service whose terms and robots policy explicitly allow automated
+ * access, and must never bypass CAPTCHA, login, anti-bot or other protections.
+ */
+export interface BrowserFlightProvider extends FlightProvider {
+  readonly mode: "browser";
+}

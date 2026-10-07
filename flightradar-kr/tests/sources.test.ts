@@ -28,7 +28,8 @@ describe("the six required sources", () => {
       trip: "partner_required",
     });
     expect(res.groups).toEqual([]);
-    expect(res.summary).toEqual({ total: 6, confirmed: 0 });
+    expect(res.dataMode).toBe("none"); // no demo banner when there is nothing to show
+    expect(res.summary).toEqual({ total: 6, confirmed: 0, live: 0 });
     for (const s of res.sources) expect(s.reason).toBeTruthy();
   });
 
@@ -39,7 +40,7 @@ describe("the six required sources", () => {
     const st = Object.fromEntries(res.sources.map((s) => [s.provider, s.status]));
     expect(st).toEqual({ catchfrog: "ok", skyscanner: "ok", playwings: "deals_only", chulguk: "manual_check", "ali-flight": "ok", trip: "ok" });
     expect(res.dataMode).toBe("demo");
-    expect(res.summary).toEqual({ total: 6, confirmed: 5 });
+    expect(res.summary).toEqual({ total: 6, confirmed: 5, live: 0 });
     expect(res.groups.every((g) => g.offers.every((o) => o.isDemo && o.sourceType === "demo"))).toBe(true);
     expect(res.relatedDeals.length).toBeGreaterThan(0);
     expect(res.relatedDeals.every((r) => r.deal.isDemo)).toBe(true);

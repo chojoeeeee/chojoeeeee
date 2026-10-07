@@ -4,7 +4,7 @@ import { ProviderUnavailableError, type SourceProvider } from "@/providers/types
 import type { DealQuery, FlightOffer, FlightSearchQuery, FlightSearchRequest, TravelDeal } from "@/types/domain";
 import { createMemoryCache, type SearchCache } from "./cache";
 import { searchHash } from "./hash";
-import type { FxRates } from "./normalize";
+import { normalizeOffers, type FxRates } from "./normalize";
 import { assembleResult, makeRun, type SearchResult, type SourceResult, type SourceRun, type SourceStatus } from "./result";
 
 export type { SearchResult, SourceResult, SourceRow, SourceRun, SourceStatus } from "./result";
@@ -149,7 +149,9 @@ export async function runSource(source: SourceProvider, request: FlightSearchReq
   const lastAttemptAt = (deps.now?.() ?? new Date()).toISOString();
   const started = Date.now();
   try {
-    const [f, d] = await Promise.all([flightPart(source, expandQueries(request), deps), dealPart(source, request, deps)]);
+    const [rawFlights, d] = await Promise.all([flightPart(source, expandQueries(request), deps), dealPart(source, request, deps)]);
+    // Convert currencies on the server, where the FX rates live. Offers that cannot be converted are dropped, not guessed.
+    const f: Part<FlightOffer> = { ...rawFlights, items: normalizeOffers(rawFlights.items, deps.fxRates).offers };
     const { status, reason } = resolveStatus(f, d);
     const elapsedMs = Date.now() - started;
     const failure = f.failure ?? d.failure;

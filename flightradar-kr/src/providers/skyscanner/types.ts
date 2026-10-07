@@ -1,8 +1,8 @@
 /**
  * Raw Skyscanner Partners API v3 response shapes (Flights Live Prices).
- * NOTE: modelled from the public API documentation; NOT yet verified against
- * a live response because no API key is available. Every field is optional on
- * purpose so that an unexpected payload degrades gracefully in the mapper.
+ * Modelled from the public developer documentation (create/poll, content.results
+ * with itineraries/legs/segments/places/carriers/agents). Not yet exercised against a
+ * live key; every field is optional so an unexpected payload degrades gracefully.
  */
 export interface SkyDateTime {
   year: number;
@@ -20,12 +20,15 @@ export interface SkyPrice {
 }
 
 export interface SkyPricingItem {
-  deepLink?: string;
+  price?: SkyPrice;
   agentId?: string;
+  deepLink?: string;
 }
 
 export interface SkyPricingOption {
   price?: SkyPrice;
+  /** More than one agent = a "mashup" (separate tickets from different agents). */
+  agentIds?: string[];
   items?: SkyPricingItem[];
 }
 
@@ -51,18 +54,28 @@ export interface SkySegment {
 }
 
 export interface SkyPlace {
+  entityId?: string;
   iata?: string;
   name?: string;
+  type?: string;
 }
 
 export interface SkyCarrier {
   name?: string;
+  iata?: string;
   iataCode?: string;
+}
+
+export interface SkyAgent {
+  name?: string;
+  type?: string;
 }
 
 export interface SkySearchResponse {
   sessionToken?: string;
   status?: "RESULT_STATUS_COMPLETE" | "RESULT_STATUS_INCOMPLETE" | "RESULT_STATUS_FAILED" | string;
+  /** Poll only: REPLACED = take this payload; NOT_MODIFIED = keep what you have. */
+  action?: "RESULT_ACTION_REPLACED" | "RESULT_ACTION_NOT_MODIFIED" | string;
   content?: {
     results?: {
       itineraries?: Record<string, SkyItinerary>;
@@ -70,6 +83,7 @@ export interface SkySearchResponse {
       segments?: Record<string, SkySegment>;
       places?: Record<string, SkyPlace>;
       carriers?: Record<string, SkyCarrier>;
+      agents?: Record<string, SkyAgent>;
     };
   };
 }

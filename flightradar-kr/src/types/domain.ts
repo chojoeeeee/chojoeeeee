@@ -74,6 +74,8 @@ export interface FlightOffer {
   adults: number;
   children: number;
 
+  /** Who sells this fare (e.g. the booking agent behind a Skyscanner result). */
+  seller?: string;
   bookingUrl: string;
   fetchedAt: string;
   priceType: PriceType;

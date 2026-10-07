@@ -27,7 +27,7 @@ describe("all sources are always attempted and always shown", () => {
     });
     expect(res.sources.map((s) => s.provider)).toEqual(["a", "boom", "slow", "manual", "nokey", "empty"]);
     expect(res.sources.map((s) => s.status)).toEqual(["ok", "error", "timeout", "manual_check", "api_required", "no_results"]);
-    expect(res.summary).toEqual({ total: 6, confirmed: 1 });
+    expect(res.summary).toEqual({ total: 6, confirmed: 1, live: 0 });
     // every non-ok source keeps a link and a last-attempt time
     for (const s of res.sources) {
       expect(s.directUrl).toContain("https://");
@@ -129,7 +129,7 @@ describe("data integrity", () => {
     expect(res.sources).toHaveLength(2);
     expect(row(res, "demo").excluded).toBe(true);
     expect(row(res, "demo").bestOffer).toBeUndefined();
-    expect(res.summary).toEqual({ total: 2, confirmed: 1 });
+    expect(res.summary).toEqual({ total: 2, confirmed: 1, live: 1 });
   });
 
   it("caches identical searches but never caches failures", async () => {

@@ -1,0 +1,5 @@
+{
+ "sessionToken": "tok-123",
+ "status": "RESULT_STATUS_INCOMPLETE",
+ "action": "RESULT_ACTION_NOT_MODIFIED"
+}

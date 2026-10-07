@@ -1,13 +1,25 @@
 import "server-only";
-import { envInt } from "@/lib/env";
+import { env, envInt } from "@/lib/env";
+import type { FxRates } from "./normalize";
 import { getSources } from "@/providers/sources";
 import type { FlightSearchRequest } from "@/types/domain";
 import { getSharedCaches, runSearch, runSource, type EngineDeps, type SearchResult, type SourceResult } from "./engine";
+
+/** KRW per 1 unit, from FX_<CUR>_KRW env vars (never hardcoded). */
+function fxRatesFromEnv(): FxRates {
+  const rates: FxRates = {};
+  for (const cur of ["CNY", "JPY", "USD", "EUR"]) {
+    const n = Number(env(`FX_${cur}_KRW`));
+    if (Number.isFinite(n) && n > 0) rates[cur] = n;
+  }
+  return rates;
+}
 
 function deps(): EngineDeps {
   return {
     sources: getSources(),
     timeoutMs: envInt("PROVIDER_TIMEOUT_MS", 8000),
+    fxRates: fxRatesFromEnv(),
     ...getSharedCaches(envInt("SEARCH_CACHE_TTL_SECONDS", 900)),
   };
 }

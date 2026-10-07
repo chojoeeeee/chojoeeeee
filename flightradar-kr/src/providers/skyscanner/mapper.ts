@@ -30,7 +30,12 @@ export function parsePrice(p: SkyPrice | undefined): number | undefined {
 
 /**
  * Maps a Live Prices response to FlightOffers. Itineraries that cannot be
- * mapped faithfully are skipped (never filled in with made-up values).
+ * mapped faithfully (unpriced, missing legs, unknown time zone) are skipped,
+ * never filled in with made-up values.
+ *
+ * Per itinerary the cheapest pricing option is used. Its `agentIds` give the
+ * seller ("mashup" = several agents joined with " + "), and the first item's
+ * deepLink is the booking URL.
  */
 export function mapSkyscannerResponse(
   res: SkySearchResponse,
@@ -42,45 +47,53 @@ export function mapSkyscannerResponse(
   const travellers = query.adults + query.children;
   const offers: FlightOffer[] = [];
 
+  const iataOf = (placeId: string | undefined, fallback: string) => (placeId && r.places?.[placeId]?.iata) || fallback;
+
   for (const [itinId, itin] of Object.entries(r.itineraries)) {
-    const legs = (itin.legIds ?? []).map((id) => r.legs?.[id]);
-    const [out, back] = legs;
+    const [out, back] = (itin.legIds ?? []).map((id) => r.legs?.[id]);
     if (!out?.departureDateTime || !out.arrivalDateTime || out.durationInMinutes == null) continue;
     if (query.returnDate && (!back?.departureDateTime || !back.arrivalDateTime || back.durationInMinutes == null)) continue;
 
     const options = (itin.pricingOptions ?? [])
-      .map((o) => ({ total: parsePrice(o.price), link: o.items?.[0]?.deepLink }))
-      .filter((o): o is { total: number; link: string | undefined } => o.total !== undefined);
+      .map((o) => ({ total: parsePrice(o.price), link: o.items?.[0]?.deepLink, agentIds: o.agentIds ?? (o.items?.[0]?.agentId ? [o.items[0].agentId] : []) }))
+      .filter((o): o is { total: number; link: string | undefined; agentIds: string[] } => o.total !== undefined && o.total > 0);
     const best = options.sort((a, b) => a.total - b.total)[0];
-    if (!best?.link) continue;
+    if (!best?.link) continue; // unpriced or not bookable
 
-    const originOffset = airportOffsetMinutes(query.origin);
-    const destOffset = airportOffsetMinutes(query.destination);
+    const stops = Math.max(out.stopCount ?? 0, back?.stopCount ?? 0);
+    if (query.directOnly && stops > 0) continue;
+
+    const origin = iataOf(out.originPlaceId, query.origin);
+    const destination = iataOf(out.destinationPlaceId, query.destination);
+    const originOffset = airportOffsetMinutes(origin);
+    const destOffset = airportOffsetMinutes(destination);
     if (originOffset === undefined || destOffset === undefined) continue; // unknown time zone
 
     const iso = (dt: SkyDateTime, offset: number) => epochToIso(localToEpoch(dateStr(dt), clock(dt), offset), offset);
 
+    const carrierOf = (id: string | undefined) => (id ? r.carriers?.[id] : undefined);
     const flightNo = (leg: typeof out) => {
       const seg = leg.segmentIds?.[0] ? r.segments?.[leg.segmentIds[0]] : undefined;
-      const carrier = seg?.marketingCarrierId ? r.carriers?.[seg.marketingCarrierId] : undefined;
-      return seg?.marketingFlightNumber ? `${carrier?.iataCode ?? ""}${seg.marketingFlightNumber}` : "";
+      const carrier = carrierOf(seg?.marketingCarrierId);
+      return seg?.marketingFlightNumber ? `${carrier?.iata ?? carrier?.iataCode ?? ""}${seg.marketingFlightNumber}` : "";
     };
-    const carrierName = out.marketingCarrierIds?.[0] ? r.carriers?.[out.marketingCarrierIds[0]]?.name : undefined;
+    const carrierNames = [...new Set((out.marketingCarrierIds ?? []).map((id) => carrierOf(id)?.name).filter((n): n is string => Boolean(n)))];
+    const sellers = best.agentIds.map((id) => r.agents?.[id]?.name).filter((n): n is string => Boolean(n));
 
     offers.push({
       id: `skyscanner:${itinId}`,
       provider: "skyscanner",
       isDemo: false,
-      originAirport: query.origin,
-      destinationAirport: query.destination,
+      originAirport: origin,
+      destinationAirport: destination,
       departureAt: iso(out.departureDateTime, originOffset),
       arrivalAt: iso(out.arrivalDateTime, destOffset),
       returnDepartureAt: back?.departureDateTime ? iso(back.departureDateTime, destOffset) : undefined,
       returnArrivalAt: back?.arrivalDateTime ? iso(back.arrivalDateTime, originOffset) : undefined,
-      airline: carrierName ?? "알 수 없음",
+      airline: carrierNames.slice(0, 2).join(" / ") || "알 수 없음",
       outboundFlightNumber: flightNo(out),
       inboundFlightNumber: back ? flightNo(back) || undefined : undefined,
-      stops: Math.max(out.stopCount ?? 0, back?.stopCount ?? 0),
+      stops,
       totalDurationMinutes: out.durationInMinutes + (back?.durationInMinutes ?? 0),
       baggage: { checkedKg: null }, // not provided by this endpoint
       cabinClass: query.cabinClass,
@@ -89,6 +102,7 @@ export function mapSkyscannerResponse(
       totalPrice: Math.round(best.total),
       adults: query.adults,
       children: query.children,
+      seller: sellers.length > 0 ? sellers.join(" + ") : undefined,
       bookingUrl: best.link,
       fetchedAt,
       priceType: "search",

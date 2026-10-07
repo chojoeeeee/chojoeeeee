@@ -1,48 +1,149 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { buildCreateBody, searchLive } from "@/providers/skyscanner/client";
 import { mapSkyscannerResponse, parsePrice } from "@/providers/skyscanner/mapper";
 import type { SkySearchResponse } from "@/providers/skyscanner/types";
+import { ProviderUnavailableError } from "@/providers/types";
+import complete from "./fixtures/skyscanner-live-response.json";
+import partial from "./fixtures/skyscanner-create-incomplete.json";
+import notModified from "./fixtures/skyscanner-poll-not-modified.json";
 import { query } from "./helpers";
 
-/** Hand-written fixture following the documented v3 shape — NOT a captured live response. */
-const fixture: SkySearchResponse = {
-  status: "RESULT_STATUS_COMPLETE",
-  content: {
-    results: {
-      itineraries: {
-        i1: {
-          legIds: ["l1", "l2"],
-          pricingOptions: [
-            { price: { amount: "420000000", unit: "PRICE_UNIT_MILLI" }, items: [{ deepLink: "https://example.com/b" }] },
-            { price: { amount: "380000000", unit: "PRICE_UNIT_MILLI" }, items: [{ deepLink: "https://example.com/a" }] },
-          ],
-        },
-        broken: { legIds: ["missing"], pricingOptions: [] },
-      },
-      legs: {
-        l1: { departureDateTime: { year: 2026, month: 11, day: 12, hour: 8, minute: 20 }, arrivalDateTime: { year: 2026, month: 11, day: 12, hour: 10, minute: 45 }, durationInMinutes: 145, stopCount: 0, marketingCarrierIds: ["c1"], segmentIds: ["s1"] },
-        l2: { departureDateTime: { year: 2026, month: 11, day: 15, hour: 18, minute: 30 }, arrivalDateTime: { year: 2026, month: 11, day: 15, hour: 21, minute: 10 }, durationInMinutes: 160, stopCount: 0, marketingCarrierIds: ["c1"], segmentIds: ["s2"] },
-      },
-      segments: { s1: { marketingFlightNumber: "1102", marketingCarrierId: "c1" }, s2: { marketingFlightNumber: "1101", marketingCarrierId: "c1" } },
-      carriers: { c1: { name: "제주항공", iataCode: "7C" } },
-    },
-  },
-};
+const full = complete as unknown as SkySearchResponse;
+const NOW = "2026-10-07T00:00:00Z";
 
-describe("skyscanner mapper", () => {
+describe("skyscanner mapper (fixture)", () => {
   it("parses milli prices and refuses unknown units", () => {
     expect(parsePrice({ amount: "189400000", unit: "PRICE_UNIT_MILLI" })).toBe(189400);
     expect(parsePrice({ amount: "100", unit: "PRICE_UNIT_WEIRD" })).toBeUndefined();
     expect(parsePrice({})).toBeUndefined();
   });
-  it("maps the cheapest pricing option, per-person, with offsets", () => {
-    const offers = mapSkyscannerResponse(fixture, query, "2026-10-07T00:00:00Z");
-    expect(offers).toHaveLength(1); // the broken itinerary is skipped, not invented
-    const o = offers[0]!;
-    expect(o).toMatchObject({ provider: "skyscanner", isDemo: false, totalPrice: 380000, pricePerPerson: 190000, outboundFlightNumber: "7C1102", bookingUrl: "https://example.com/a" });
-    expect(o.departureAt).toBe("2026-11-12T08:20:00+09:00");
-    expect(o.totalDurationMinutes).toBe(305);
+
+  it("maps every priced itinerary and skips the unpriced one", () => {
+    const offers = mapSkyscannerResponse(full, query, NOW);
+    expect(offers.map((o) => o.id).sort()).toEqual(["skyscanner:i_direct_7c", "skyscanner:i_direct_ke", "skyscanner:i_stop_tw"]);
   });
-  it("returns [] for an empty or unexpected payload", () => {
-    expect(mapSkyscannerResponse({}, query, "x")).toEqual([]);
+
+  it("uses the cheapest pricing option and its agent as the seller", () => {
+    const o = mapSkyscannerResponse(full, query, NOW).find((x) => x.id === "skyscanner:i_direct_7c")!;
+    expect(o.totalPrice).toBe(378000); // not the 420,000 airline-direct option
+    expect(o.pricePerPerson).toBe(189000); // 2 adults
+    expect(o.seller).toBe("Trip.com");
+    expect(o.bookingUrl).toBe("https://example.com/deeplink/trip-7c");
+    expect(o).toMatchObject({ provider: "skyscanner", sourceType: "api", isDemo: false, currency: "KRW", priceType: "search", adults: 2 });
+  });
+
+  it("maps airline, airports, times, return leg, stops and duration", () => {
+    const o = mapSkyscannerResponse(full, query, NOW).find((x) => x.id === "skyscanner:i_direct_7c")!;
+    expect(o).toMatchObject({
+      airline: "제주항공",
+      originAirport: "ICN",
+      destinationAirport: "NRT",
+      departureAt: "2026-11-12T08:20:00+09:00",
+      arrivalAt: "2026-11-12T10:45:00+09:00",
+      returnDepartureAt: "2026-11-15T18:30:00+09:00",
+      returnArrivalAt: "2026-11-15T21:10:00+09:00",
+      outboundFlightNumber: "7C1102",
+      inboundFlightNumber: "7C1101",
+      stops: 0,
+      totalDurationMinutes: 305,
+      fetchedAt: NOW,
+    });
+  });
+
+  it("takes airports from the response places (ICN→HND), not from the query", () => {
+    const o = mapSkyscannerResponse(full, query, NOW).find((x) => x.id === "skyscanner:i_direct_ke")!;
+    expect(o.destinationAirport).toBe("HND");
+  });
+
+  it("joins mashup agents and counts connecting flights", () => {
+    const o = mapSkyscannerResponse(full, query, NOW).find((x) => x.id === "skyscanner:i_stop_tw")!;
+    expect(o.seller).toBe("Trip.com + Jeju Air");
+    expect(o.stops).toBe(1);
+    expect(o.airline).toBe("티웨이항공 / 제주항공");
+  });
+
+  it("honours directOnly and one-way", () => {
+    expect(mapSkyscannerResponse(full, { ...query, directOnly: true }, NOW).every((o) => o.stops === 0)).toBe(true);
+    const oneWay = mapSkyscannerResponse(full, { ...query, returnDate: undefined }, NOW);
+    expect(oneWay.length).toBeGreaterThan(0);
+  });
+
+  it("returns [] for empty / unexpected payloads and never throws", () => {
+    expect(mapSkyscannerResponse({}, query, NOW)).toEqual([]);
+    expect(mapSkyscannerResponse({ content: { results: { itineraries: { x: {} }, legs: {} } } }, query, NOW)).toEqual([]);
+  });
+});
+
+function fakeFetch(responses: Array<{ status?: number; body?: unknown }>) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const impl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    const r = responses[Math.min(calls.length - 1, responses.length - 1)]!;
+    return new Response(JSON.stringify(r.body ?? {}), { status: r.status ?? 200 });
+  });
+  return { impl: impl as unknown as typeof fetch, calls };
+}
+const cfg = { apiKey: "KEY", market: "KR", locale: "ko-KR", sleep: async () => {} };
+
+describe("skyscanner create + poll", () => {
+  it("builds the create request body from the query", () => {
+    const b = buildCreateBody(cfg, { ...query, returnDate: "2026-11-15" });
+    expect(b.query).toMatchObject({ market: "KR", locale: "ko-KR", currency: "KRW", adults: 2, cabinClass: "CABIN_CLASS_ECONOMY" });
+    expect(b.query.queryLegs).toEqual([
+      { originPlaceId: { iata: "ICN" }, destinationPlaceId: { iata: "NRT" }, date: { year: 2026, month: 11, day: 12 } },
+      { originPlaceId: { iata: "NRT" }, destinationPlaceId: { iata: "ICN" }, date: { year: 2026, month: 11, day: 15 } },
+    ]);
+  });
+
+  it("creates, then polls until complete, using the session token and API key header", async () => {
+    const f = fakeFetch([{ body: partial }, { body: complete }]);
+    const res = await searchLive({ ...cfg, fetchImpl: f.impl }, query);
+    expect(f.calls[0]!.url).toBe("https://partners.api.skyscanner.net/apiservices/v3/flights/live/search/create");
+    expect(f.calls[1]!.url).toBe("https://partners.api.skyscanner.net/apiservices/v3/flights/live/search/poll/tok-123");
+    expect((f.calls[0]!.init.headers as Record<string, string>)["x-api-key"]).toBe("KEY");
+    expect(res.status).toBe("RESULT_STATUS_COMPLETE");
+    expect(Object.keys(res.content?.results?.itineraries ?? {})).toHaveLength(4);
+  });
+
+  it("keeps earlier results when a poll says NOT_MODIFIED", async () => {
+    const f = fakeFetch([{ body: partial }, { body: notModified }, { body: complete }]);
+    const res = await searchLive({ ...cfg, fetchImpl: f.impl }, query);
+    expect(f.calls).toHaveLength(3);
+    expect(res.status).toBe("RESULT_STATUS_COMPLETE");
+  });
+
+  it("stops polling after maxPolls and returns the partial results", async () => {
+    const f = fakeFetch([{ body: partial }]); // always incomplete
+    const res = await searchLive({ ...cfg, maxPolls: 2, fetchImpl: f.impl }, query);
+    expect(f.calls).toHaveLength(3); // create + 2 polls
+    expect(Object.keys(res.content?.results?.itineraries ?? {})).toEqual(["i_direct_ke"]);
+  });
+
+  it("does not poll when create is already complete", async () => {
+    const f = fakeFetch([{ body: complete }]);
+    await searchLive({ ...cfg, fetchImpl: f.impl }, query);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("maps 401/403 to api_required, 429/5xx to ordinary errors, without leaking the key", async () => {
+    for (const status of [401, 403]) {
+      const f = fakeFetch([{ status }]);
+      const err = await searchLive({ ...cfg, fetchImpl: f.impl }, query).catch((e) => e);
+      expect(err).toBeInstanceOf(ProviderUnavailableError);
+      expect((err as ProviderUnavailableError).status).toBe("api_required");
+      expect(String(err.message)).not.toContain("KEY");
+    }
+    for (const status of [429, 500]) {
+      const f = fakeFetch([{ status }]);
+      const err = await searchLive({ ...cfg, fetchImpl: f.impl }, query).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(ProviderUnavailableError);
+      expect(String(err.message)).toContain(String(status));
+    }
+  });
+
+  it("fails on RESULT_STATUS_FAILED", async () => {
+    const f = fakeFetch([{ body: { status: "RESULT_STATUS_FAILED" } }]);
+    await expect(searchLive({ ...cfg, fetchImpl: f.impl }, query)).rejects.toThrow(/failed/);
   });
 });

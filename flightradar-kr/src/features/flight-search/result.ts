@@ -65,10 +65,10 @@ export interface SearchResult {
   recommendations: Recommendations;
   relatedDeals: RelatedDeal[];
   savingsTip?: SavingsTip;
-  /** confirmed = sources that returned prices or deals (and are shown in comparison). */
-  summary: { total: number; confirmed: number };
-  /** "demo" = every displayed number is DEMO DATA. */
-  dataMode: "live" | "demo";
+  /** confirmed = sources that returned prices or deals (and are shown in comparison); live = those that are not DEMO. */
+  summary: { total: number; confirmed: number; live: number };
+  /** "demo" = every displayed number is DEMO DATA; "none" = nothing to display. */
+  dataMode: "live" | "demo" | "none";
   generatedAt: string;
 }
 
@@ -157,8 +157,12 @@ export function assembleResult(
     recommendations: recommend(groups),
     relatedDeals: related,
     savingsTip: savingsTip(related, best),
-    summary: { total: sources.length, confirmed: sources.filter((s) => !s.excluded && CONFIRMED.includes(s.status)).length },
-    dataMode: hasReal ? "live" : "demo",
+    summary: {
+      total: sources.length,
+      confirmed: sources.filter((s) => !s.excluded && CONFIRMED.includes(s.status)).length,
+      live: sources.filter((s) => !s.excluded && !s.isDemo && CONFIRMED.includes(s.status)).length,
+    },
+    dataMode: hasReal ? "live" : shownOffers.length > 0 || shownDeals.length > 0 ? "demo" : "none",
     generatedAt: (opts.now?.() ?? new Date()).toISOString(),
   };
 }

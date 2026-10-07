@@ -1,20 +1,22 @@
 export interface Airport {
   code: string;
   city: string;
+  /** Chinese city name, used for Fliggy/FlyAI which searches by Chinese city names. */
+  cityZh: string;
   cityCode: string;
   name: string;
   country: string;
 }
 
 export const AIRPORTS: Airport[] = [
-  { code: "ICN", city: "서울", cityCode: "SEL", name: "인천국제공항", country: "KR" },
-  { code: "GMP", city: "서울", cityCode: "SEL", name: "김포국제공항", country: "KR" },
-  { code: "PUS", city: "부산", cityCode: "PUS", name: "김해국제공항", country: "KR" },
-  { code: "NRT", city: "도쿄", cityCode: "TYO", name: "나리타국제공항", country: "JP" },
-  { code: "HND", city: "도쿄", cityCode: "TYO", name: "하네다공항", country: "JP" },
-  { code: "KIX", city: "오사카", cityCode: "OSA", name: "간사이국제공항", country: "JP" },
-  { code: "UKB", city: "오사카", cityCode: "OSA", name: "고베공항", country: "JP" },
-  { code: "FUK", city: "후쿠오카", cityCode: "FUK", name: "후쿠오카공항", country: "JP" },
+  { code: "ICN", cityZh: "首尔", city: "서울", cityCode: "SEL", name: "인천국제공항", country: "KR" },
+  { code: "GMP", cityZh: "首尔", city: "서울", cityCode: "SEL", name: "김포국제공항", country: "KR" },
+  { code: "PUS", cityZh: "釜山", city: "부산", cityCode: "PUS", name: "김해국제공항", country: "KR" },
+  { code: "NRT", cityZh: "东京", city: "도쿄", cityCode: "TYO", name: "나리타국제공항", country: "JP" },
+  { code: "HND", cityZh: "东京", city: "도쿄", cityCode: "TYO", name: "하네다공항", country: "JP" },
+  { code: "KIX", cityZh: "大阪", city: "오사카", cityCode: "OSA", name: "간사이국제공항", country: "JP" },
+  { code: "UKB", cityZh: "大阪", city: "오사카", cityCode: "OSA", name: "고베공항", country: "JP" },
+  { code: "FUK", cityZh: "福冈", city: "후쿠오카", cityCode: "FUK", name: "후쿠오카공항", country: "JP" },
 ];
 
 const byCode = new Map(AIRPORTS.map((a) => [a.code, a]));

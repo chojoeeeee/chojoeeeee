@@ -29,7 +29,7 @@ export function OfferCard({ group, providerNames, tag }: { group: FlightGroup; p
         <div className="shrink-0 text-right">
           <p className="text-2xl font-bold">{formatKrw(o.pricePerPerson)}</p>
           <p className="text-xs text-muted">1인 · 총 {formatKrw(o.totalPrice)}</p>
-          <p className="mt-1 text-xs text-muted">{providerNames[o.provider] ?? o.provider}</p>
+          <p className="mt-1 text-xs text-muted">{providerNames[o.provider] ?? o.provider}{o.seller && ` · 판매처 ${o.seller}`}</p>
         </div>
       </div>
 

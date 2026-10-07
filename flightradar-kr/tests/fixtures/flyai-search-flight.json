@@ -1,0 +1,30 @@
+{
+  "_note": "HAND-WRITTEN FIXTURE following alibaba-flyai/flyai-skill references/search-flight.md output example. Not a captured live response.",
+  "status": 0,
+  "message": "success",
+  "data": {
+    "itemList": [
+      {
+        "adultPrice": "¥1,180.0",
+        "jumpUrl": "https://example.com/fliggy/book/1",
+        "journeys": [
+          { "journeyType": "直达", "totalDuration": "2小时25分钟", "segments": [
+            { "depStationCode": "ICN", "depDateTime": "2026-11-12 08:20:00", "arrStationCode": "NRT", "arrDateTime": "2026-11-12 10:45:00", "duration": "145分钟", "marketingTransportName": "济州航空", "marketingTransportNo": "7C1102", "seatClassName": "经济舱" } ] },
+          { "journeyType": "直达", "totalDuration": "160分钟", "segments": [
+            { "depStationCode": "NRT", "depDateTime": "2026-11-15 18:30:00", "arrStationCode": "ICN", "arrDateTime": "2026-11-15 21:10:00", "duration": "160分钟", "marketingTransportName": "济州航空", "marketingTransportNo": "7C1101", "seatClassName": "经济舱" } ] }
+        ]
+      },
+      {
+        "adultPrice": "¥1,500.0",
+        "jumpUrl": "https://example.com/fliggy/book/2",
+        "journeys": [
+          { "journeyType": "转机", "totalDuration": "7小时0分钟", "segments": [
+            { "depStationCode": "GMP", "depDateTime": "2026-11-12 07:00:00", "arrStationCode": "KIX", "arrDateTime": "2026-11-12 08:40:00", "duration": "100分钟", "marketingTransportName": "韩亚航空", "marketingTransportNo": "OZ111" },
+            { "depStationCode": "KIX", "depDateTime": "2026-11-12 11:00:00", "arrStationCode": "HND", "arrDateTime": "2026-11-12 14:00:00", "duration": "120分钟", "marketingTransportName": "韩亚航空", "marketingTransportNo": "OZ222" } ] }
+        ]
+      },
+      { "adultPrice": "¥900.0", "jumpUrl": "javascript:alert(1)", "journeys": [] },
+      { "adultPrice": "价格待定", "jumpUrl": "https://example.com/fliggy/book/3", "journeys": [] }
+    ]
+  }
+}
