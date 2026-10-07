@@ -1,6 +1,6 @@
 import { dealKeywords } from "@/features/deal-engine/related";
 import { logProviderRequest, sanitizeError } from "@/lib/logger";
-import { ProviderUnavailableError, type SourceProvider } from "@/providers/types";
+import { DEFAULT_SCHEDULE_POLICY, ProviderUnavailableError, StructureUnverifiedError, type ProviderSchedulePolicy, type SearchTrigger, type SourceProvider } from "@/providers/types";
 import type { DealQuery, FlightOffer, FlightSearchQuery, FlightSearchRequest, TravelDeal } from "@/types/domain";
 import { createMemoryCache, type SearchCache } from "./cache";
 import { searchHash } from "./hash";
@@ -11,6 +11,11 @@ export type { SearchResult, SourceResult, SourceRow, SourceRun, SourceStatus } f
 
 export interface EngineDeps {
   sources: SourceProvider[];
+  /**
+   * Who is asking. Defaults to "user" (a person pressed search). A scheduler MUST pass
+   * "background": providers whose policy forbids background polling are then not called.
+   */
+  trigger?: SearchTrigger;
   timeoutMs: number;
   cache?: SearchCache<FlightOffer[]>;
   dealCache?: SearchCache<TravelDeal[]>;
@@ -68,6 +73,8 @@ async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: numb
 
 interface Part<T> {
   items: T[];
+  /** Set when the call was skipped because the provider's policy forbids it for this trigger. */
+  skippedReason?: string;
   /** Set only if the whole part failed. */
   failure?: unknown;
   attempted: boolean;
@@ -76,21 +83,32 @@ interface Part<T> {
 
 const NOT_ATTEMPTED = { items: [], attempted: false, cached: false } as const;
 
+/** Returns a skip reason if `policy` forbids this trigger. */
+export function policyViolation(policy: ProviderSchedulePolicy | undefined, trigger: SearchTrigger): string | undefined {
+  const p = policy ?? DEFAULT_SCHEDULE_POLICY;
+  if (trigger === "background" && !p.backgroundPolling) return p.notes ?? "이 서비스의 정책상 자동(백그라운드) 조회가 허용되지 않습니다.";
+  return undefined;
+}
+
 function failureStatus(reason: unknown): SourceStatus {
   if (reason instanceof TimeoutError) return "timeout";
   if (reason instanceof ProviderUnavailableError) return reason.status;
+  if (reason instanceof StructureUnverifiedError) return "manual_check";
   return "error";
 }
 
 function failureReason(reason: unknown): string {
   if (reason instanceof TimeoutError) return "응답 시간이 초과되었습니다.";
-  if (reason instanceof ProviderUnavailableError) return reason.message;
+  if (reason instanceof ProviderUnavailableError || reason instanceof StructureUnverifiedError) return reason.message;
   return "일시적인 오류로 조회하지 못했습니다.";
 }
 
 async function flightPart(source: SourceProvider, queries: FlightSearchQuery[], deps: EngineDeps): Promise<Part<FlightOffer>> {
   const provider = source.flight;
   if (!provider) return { ...NOT_ATTEMPTED, items: [] };
+  const trigger = deps.trigger ?? "user";
+  const skippedReason = policyViolation(provider.schedulePolicy?.(), trigger);
+  if (skippedReason) return { ...NOT_ATTEMPTED, items: [], skippedReason };
   let cachedAll = true;
   const settled = await Promise.allSettled(
     queries.map(async (q) => {
@@ -98,7 +116,7 @@ async function flightPart(source: SourceProvider, queries: FlightSearchQuery[], 
       const hit = deps.cache?.get(key);
       if (hit) return hit;
       cachedAll = false;
-      const offers = await withTimeout((signal) => provider.searchFlights(q, { signal }), deps.timeoutMs);
+      const offers = await withTimeout((signal) => provider.searchFlights(q, { signal, trigger }), deps.timeoutMs);
       deps.cache?.set(key, offers);
       return offers;
     }),
@@ -113,12 +131,15 @@ async function flightPart(source: SourceProvider, queries: FlightSearchQuery[], 
 async function dealPart(source: SourceProvider, req: FlightSearchRequest, deps: EngineDeps): Promise<Part<TravelDeal>> {
   const provider = source.deal;
   if (!provider) return { ...NOT_ATTEMPTED, items: [] };
+  const trigger = deps.trigger ?? "user";
+  const skippedReason = policyViolation(provider.schedulePolicy?.(), trigger);
+  if (skippedReason) return { ...NOT_ATTEMPTED, items: [], skippedReason };
   const query = toDealQuery(req);
   const key = `d:${provider.name}:${JSON.stringify(query)}`;
   const hit = deps.dealCache?.get(key);
   if (hit) return { items: hit, attempted: true, cached: true };
   try {
-    const items = await withTimeout((signal) => provider.getDeals(query, { signal }), deps.timeoutMs);
+    const items = await withTimeout((signal) => provider.getDeals(query, { signal, trigger }), deps.timeoutMs);
     deps.dealCache?.set(key, items);
     return { items, attempted: true, cached: false };
   } catch (failure) {
@@ -130,10 +151,14 @@ function resolveStatus(f: Part<FlightOffer>, d: Part<TravelDeal>): { status: Sou
   if (f.items.length > 0) return { status: "ok" };
   if (d.items.length > 0) return { status: "deals_only" };
   const parts = [f, d].filter((p) => p.attempted);
+  if (parts.length === 0) {
+    const skipped = f.skippedReason ?? d.skippedReason;
+    if (skipped) return { status: "policy_skipped", reason: `백그라운드 조회 건너뜀: ${skipped}` };
+  }
   if (parts.some((p) => p.failure === undefined)) return { status: "no_results", reason: "조회는 성공했지만 현재 조건에 맞는 결과가 없습니다." };
   const failures = parts.map((p) => p.failure);
   // Technical failures are more informative than "not connectable".
-  const technical = failures.find((x) => !(x instanceof ProviderUnavailableError));
+  const technical = failures.find((x) => !(x instanceof ProviderUnavailableError) && !(x instanceof StructureUnverifiedError));
   const chosen = technical ?? failures[0];
   if (chosen === undefined) return { status: "unavailable", reason: "조회 가능한 방식이 등록되어 있지 않습니다." };
   return { status: failureStatus(chosen), reason: failureReason(chosen) };
@@ -141,7 +166,7 @@ function resolveStatus(f: Part<FlightOffer>, d: Part<TravelDeal>): { status: Sou
 
 function makeRunFor(source: SourceProvider, req: FlightSearchRequest, partial: Partial<SourceRun>): SourceRun {
   const directUrl = source.directUrl({ origin: req.origins[0] ?? "", destination: req.destinations[0] ?? "", departureDate: req.departureDate, returnDate: req.returnDate, adults: req.adults });
-  return makeRun({ name: source.name, displayName: source.displayName, checkUrl: source.checkUrl, checkLabel: source.checkLabel }, directUrl, partial);
+  return makeRun({ name: source.name, displayName: source.displayName, role: source.role, checkUrl: source.checkUrl, checkLabel: source.checkLabel }, directUrl, partial);
 }
 
 /** Queries ONE source (flights + deals in parallel). Never throws. */

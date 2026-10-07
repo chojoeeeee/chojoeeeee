@@ -46,7 +46,7 @@ describe("SkyscannerProvider: key in → real search works", () => {
   it("through the engine: LIVE offers are shown and a Skyscanner key rejection becomes api_required", async () => {
     vi.stubEnv("SKYSCANNER_API_KEY", "TESTKEY");
     vi.stubGlobal("fetch", vi.fn(async () => json(complete)));
-    const source = { name: "skyscanner", displayName: "Skyscanner", checkUrl: "https://www.skyscanner.co.kr", checkLabel: "x", directUrl: () => "https://x", flight: new SkyscannerProvider() };
+    const source = { role: "flight" as const, name: "skyscanner", displayName: "Skyscanner", checkUrl: "https://www.skyscanner.co.kr", checkLabel: "x", directUrl: () => "https://x", flight: new SkyscannerProvider() };
     const ok = await runSearch(request, { sources: [source], timeoutMs: 1000 });
     expect(ok.dataMode).toBe("live");
     expect(ok.sources[0]).toMatchObject({ status: "ok", isDemo: false });

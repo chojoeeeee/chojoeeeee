@@ -4,6 +4,8 @@ import type { FlightSearchRequest, TravelDeal } from "@/types/domain";
 
 /** ± days within which an exact-date deal counts as "similar dates". */
 export const NEAR_DATE_DAYS = 3;
+/** A deal's trip length may differ from the searched one by at most this many days. */
+export const TRIP_LENGTH_TOLERANCE_DAYS = 1;
 
 export type DealMatch = "window" | "same_dates" | "near_dates" | "destination_only";
 
@@ -24,10 +26,13 @@ const cityOf = (code: string) => getAirport(code)?.cityCode ?? code.toUpperCase(
 
 export function relatedDeals(deals: TravelDeal[], req: FlightSearchRequest): RelatedDeal[] {
   const wantedCities = new Set(req.destinations.map(cityOf));
+  const wantedOrigins = new Set(req.origins.map(cityOf));
   const tripLen = req.returnDate ? daysBetween(req.departureDate, req.returnDate) : 0;
   const out: RelatedDeal[] = [];
 
   for (const deal of deals) {
+    // Route must match: origin (when the deal states one) and destination.
+    if (deal.origin && !wantedOrigins.has(cityOf(deal.origin))) continue;
     if (deal.destination && !wantedCities.has(cityOf(deal.destination))) continue;
 
     const { travelStartDate: start, travelEndDate: end } = deal;
@@ -42,6 +47,8 @@ export function relatedDeals(deals: TravelDeal[], req: FlightSearchRequest): Rel
       out.push({ deal, match: "window" });
       continue;
     }
+    // Similar trip length is required (only checkable for round-trip searches).
+    if (req.returnDate && Math.abs(span - tripLen) > TRIP_LENGTH_TOLERANCE_DAYS) continue;
     const shift = daysBetween(req.departureDate, start);
     if (shift === 0) out.push({ deal, match: "same_dates", shiftDays: 0 });
     else if (Math.abs(shift) <= NEAR_DATE_DAYS) out.push({ deal, match: "near_dates", shiftDays: shift });

@@ -1,4 +1,5 @@
 import { relatedDeals, savingsTip, type RelatedDeal, type SavingsTip } from "@/features/deal-engine/related";
+import type { SourceRole } from "@/providers/types";
 import type { FlightOffer, FlightSearchRequest, TravelDeal } from "@/types/domain";
 import { groupOffers, providerPrices, recommend, type FlightGroup, type ProviderPrice, type Recommendations } from "./compare";
 import { normalizeOffers, type FxRates } from "./normalize";
@@ -19,11 +20,14 @@ export type SourceStatus =
   | "partner_required"
   | "unavailable"
   | "timeout"
-  | "error";
+  | "error"
+  | "policy_skipped"; // a background call the provider's terms do not allow
 
 export interface SourceRun {
   provider: string;
   displayName: string;
+  /** "flight" = real-schedule price comparison; "deal" = related deals. */
+  role: SourceRole;
   checkUrl: string;
   checkLabel: string;
   directUrl: string;
@@ -51,6 +55,8 @@ export interface SourceResult {
 export interface SourceRow extends SourceRun {
   bestOffer?: FlightOffer;
   bestDeal?: TravelDeal;
+  /** This source's deals that match the searched route and similar dates. */
+  related: RelatedDeal[];
   /** 1-based rank among sources with comparable prices. */
   rank?: number;
   /** KRW per person above the cheapest source (0 for the cheapest). */
@@ -76,6 +82,7 @@ export interface SearchResult {
 export interface SourceInfo {
   name: string;
   displayName: string;
+  role: SourceRole;
   checkUrl: string;
   checkLabel: string;
 }
@@ -84,6 +91,7 @@ export function makeRun(info: SourceInfo, directUrl: string, partial: Partial<So
   return {
     provider: info.name,
     displayName: info.displayName,
+    role: info.role,
     checkUrl: info.checkUrl,
     checkLabel: info.checkLabel,
     directUrl,
@@ -137,6 +145,7 @@ export function assembleResult(
       reason: excluded ? "데모 데이터라서 실제 가격 비교에서 제외했습니다." : run.reason,
       bestOffer: price?.offer,
       bestDeal: deals[0],
+      related: [],
       rank: price?.rank,
       diffFromBest: price && best !== undefined ? price.offer.pricePerPerson - best : undefined,
     };
@@ -149,6 +158,10 @@ export function assembleResult(
 
   const groups = groupOffers(shownOffers);
   const related = relatedDeals(shownDeals, request);
+  for (const row of sources) {
+    const own = new Set(results.find((r) => r.run.provider === row.provider)?.deals.map((d) => d.id));
+    row.related = row.excluded ? [] : related.filter((r) => own.has(r.deal.id));
+  }
   return {
     request,
     sources,

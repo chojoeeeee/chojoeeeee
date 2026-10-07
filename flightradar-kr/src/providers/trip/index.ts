@@ -2,7 +2,7 @@ import "server-only";
 import { env } from "@/lib/env";
 import type { FlightOffer, FlightSearchQuery, ProviderHealth } from "@/types/domain";
 import { demoEnabled } from "../demo-mode";
-import { ProviderUnavailableError, type FlightProvider } from "../types";
+import { ProviderUnavailableError, type FlightProvider, type ProviderSchedulePolicy } from "../types";
 import { generateDemoOffers } from "../mock/generator";
 
 /**
@@ -20,6 +20,10 @@ export class TripProvider implements FlightProvider {
 
   private mode(): "mock" | "live" {
     return env("TRIP_PROVIDER_MODE") === "live" ? "live" : "mock";
+  }
+
+  schedulePolicy(): ProviderSchedulePolicy {
+    return { userInitiatedSearch: true, backgroundPolling: false, policyStatus: "unverified", notes: "협약 조건(호출 한도·자동 조회 허용 범위) 확인 필요 — 확인 전 백그라운드 금지" };
   }
 
   isDemo(): boolean {

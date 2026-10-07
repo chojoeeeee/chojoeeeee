@@ -103,7 +103,7 @@ describe("AliFlightProvider gating", () => {
 describe("CNY offers are converted on the server", () => {
   it("runSource converts CNY→KRW with the supplied rate; without it the offers are dropped", async () => {
     const provider = { name: "ali-flight", displayName: "알리항공권", isEnabled: () => true, isDemo: () => false, searchFlights: async () => mapFlyaiResponse(res, query, NOW), healthCheck: async () => ({ provider: "ali-flight", status: "connected" as const, checkedAt: NOW }) };
-    const source = { name: "ali-flight", displayName: "알리항공권", checkUrl: "https://example.com", checkLabel: "x", directUrl: () => "https://example.com", flight: provider };
+    const source = { role: "flight" as const, name: "ali-flight", displayName: "알리항공권", checkUrl: "https://example.com", checkLabel: "x", directUrl: () => "https://example.com", flight: provider };
     const withRate = await runSearch(request, { sources: [source], timeoutMs: 100, fxRates: { CNY: 190 } });
     expect(withRate.sources[0]?.status).toBe("ok");
     expect(withRate.sources[0]?.bestOffer).toMatchObject({ currency: "KRW", pricePerPerson: 1180 * 190 });

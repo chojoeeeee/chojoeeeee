@@ -16,6 +16,15 @@ export interface Evidence {
   note: string;
 }
 
+export type CheckStatus = "UNVERIFIED" | "INFERRED" | "CONFIRMED";
+
+/** One thing we need to know before a public page may be collected automatically. */
+export interface ChecklistItem {
+  item: string;
+  status: CheckStatus;
+  note: string;
+}
+
 export interface SourceProfile {
   name: string;
   /** UI/README display name. */
@@ -37,6 +46,12 @@ export interface SourceProfile {
   /** What the owner must do next. */
   nextStep: string;
   reachability?: Reachability;
+  /** Role on the result screen: real-schedule prices vs. related deals. */
+  role: "flight" | "deal";
+  /** Whether automatic (background) calls are allowed — see each provider's schedulePolicy(). */
+  scheduleSummary: string;
+  /** Structure / terms checklist for sources that publish data on a public web page. */
+  publicDataChecklist?: ChecklistItem[];
   robotsUrl: string;
   robotsStatus: "UNVERIFIED";
   evidence: Evidence[];
@@ -49,15 +64,26 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     officialName: "캐치프로그 (Catchfrog) — 여행 리워드/예약 플랫폼",
     officialUrl: "https://catchfrog.ai",
     operator: "주식회사 그루누이 (GROONUI), 대표 안영빈 · catchfrog@groonui.com",
-    serviceType: ["Travel Platform", "Deal Service"],
-    flightSearch: "yes",
+    serviceType: ["Deal Service", "Travel Platform"],
+    flightSearch: "unverified",
     dealFeed: "yes",
     officialApi: "unverified",
     partnerApi: "unverified",
     publicWeb: "yes",
-    automation: "공식 웹(catchfrog.ai)과 앱이 존재하고 '뚝 떨어진 항공권' 특가를 제공. 공개 API/Feed는 검색에서 확인되지 않음. 자동 수집 허용 여부는 약관·robots 확인 전까지 UNVERIFIED.",
-    connectionLabel: "연결 방식 조사 중 — 공식 웹 확인, 공개 API 미확인",
-    nextStep: "catchfrog@groonui.com 으로 데이터/제휴 API 제공 여부 문의 + 사용자가 로컬에서 robots.txt·약관 확인",
+    role: "deal",
+    scheduleSummary: "약관·robots 확인 전: 사용자 검색 ✗ / 백그라운드 ✗ (승인 후 사용자 검색부터, 백그라운드는 별도 승인)",
+    automation: "공식 웹(catchfrog.ai)에 '뚝 떨어진 항공권'(출발지·목적지·현재 가격·평균 대비 할인율)이 공개됨 → Public Web Deal Provider 후보. 일반 OTA 검색 결과와 같은 성격으로 가정하지 않고 DealProvider로 처리. 약관·robots 확인 전 자동 수집 OFF(CatchfrogDealProvider + 파서 구조만 구현).",
+    connectionLabel: "공개 웹 특가(PUBLIC DEAL 후보) — 약관·robots 확인 후 수집",
+    nextStep: "① 로컬 브라우저로 catchfrog.ai/robots.txt·이용약관 확인 ② 허용이면 CATCHFROG_COLLECTION_APPROVED=yes ③ 페이지 소스(view-source) 샘플을 공유하면 추출기 구현. 불확실하면 catchfrog@groonui.com 에 데이터 제공 문의",
+    publicDataChecklist: [
+      { item: "① 서버 렌더링 HTML 여부", status: "INFERRED", note: "검색 엔진 결과에 노선·가격·할인율 텍스트가 그대로 노출(예: 세부 257,900원 -45.0%, 후쿠오카 165,300원 -44.7%) → HTML에 포함됐을 가능성. 직접 열람 불가로 확정 못 함." },
+      { item: "② 브라우저 렌더링 후 생성되는 데이터인지", status: "UNVERIFIED", note: "개발 환경에서 catchfrog.ai 접근 차단(EGRESS_BLOCKED)." },
+      { item: "③ 별도 JSON endpoint", status: "UNVERIFIED", note: "개발자 도구 Network 탭 확인 필요. 앱 내부 API 역공학은 하지 않음." },
+      { item: "④ pagination / filter URL", status: "UNVERIFIED", note: "목록 하단/필터 UI 확인 필요." },
+      { item: "⑤ robots.txt", status: "UNVERIFIED", note: "https://catchfrog.ai/robots.txt — 사용자가 확인." },
+      { item: "⑥ 이용약관의 자동 수집 허용 여부", status: "UNVERIFIED", note: "약관 문구를 검색으로 찾지 못함. 운영사 ㈜그루누이에 문의 가능." },
+      { item: "⑦ 공개 데이터 갱신 주기", status: "UNVERIFIED", note: "앱 설명은 '실시간 가격 변동 분석'이나 웹 갱신 주기는 미확인 → 최소 60분 캐시로 제한." },
+    ],
     robotsUrl: "https://catchfrog.ai/robots.txt",
     robotsStatus: "UNVERIFIED",
     evidence: [
@@ -66,6 +92,7 @@ export const SOURCE_PROFILES: SourceProfile[] = [
       { url: "https://play.google.com/store/apps/details?id=com.groonui.instantrip", note: "Google Play (패키지 com.groonui.instantrip)" },
       { url: "https://magazine.hankyung.com/job-joy/article/202511056546d", note: "정식 런칭 기사: 운영사 ㈜그루누이, 홈페이지 catchfrog.ai, 문의 이메일" },
       { url: "https://catchfrog.ai/blog/flight-deal-sites-comparison", note: "공개 블로그 페이지 존재(콘텐츠 페이지, 가격 데이터 아님)" },
+      { url: "https://catchfrog.ai/", note: "검색 결과 스니펫에 노선·가격·평균 대비 할인율 목록이 노출(세부 257,900원 -45.0% 등) — 공개 특가 목록 근거(2026-10-07)" },
     ],
   },
   {
@@ -78,8 +105,10 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     dealFeed: "no",
     officialApi: "yes",
     partnerApi: "yes",
-    publicWeb: "yes",
-    automation: "공식 Flights Live Prices API(create → poll) 구현 완료. API Key만 넣으면 동작. 키는 파트너 심사 후 발급되며 독립 개발자 승인은 보장되지 않음.",
+    publicWeb: "no",
+    role: "flight",
+    scheduleSummary: "Live 사용자 검색 ✓ / 백그라운드 ✗ (Usage Guidelines: 사용자 행동 없는 자동 호출 금지). Indicative·Refresh는 정책 확인 전 백그라운드 ✗",
+    automation: "공식 Flights Live Prices API(create → poll) 구현 완료, 키만 넣으면 사용자 검색에서 동작. Usage Guidelines상 Live 호출은 사용자 요청에서만 → Watchlist 자동 Live 조회 금지. 날짜 탐색은 Indicative Prices 검토, Refresh는 선택한 항공편 정확도용. 공개 웹은 수집 대상 아님.",
     connectionLabel: "API 연결 준비 완료 — API Key 필요",
     nextStep: "Skyscanner Partners(partners.skyscanner.net)에서 Flights Live Prices API 접근 신청 → 승인 후 SKYSCANNER_API_KEY 설정",
     robotsUrl: "https://www.skyscanner.co.kr/robots.txt",
@@ -88,7 +117,8 @@ export const SOURCE_PROFILES: SourceProfile[] = [
       { url: "https://developers.skyscanner.net/docs/flights-live-prices/overview", note: "Flights Live Prices 개요 (공식 문서)" },
       { url: "https://developers.skyscanner.net/docs/getting-started/create-and-poll", note: "create/poll 방식: POST …/v3/flights/live/search/create, …/poll/{sessionToken}" },
       { url: "https://developers.skyscanner.net/docs/faqs", note: "FAQ (status/응답 구조 관련)" },
-      { url: "https://developers.skyscanner.net/docs/getting-started/usage-guidelines", note: "이용 가이드라인" },
+      { url: "https://developers.skyscanner.net/docs/getting-started/usage-guidelines", note: "Usage Guidelines: Live Pricing 호출은 사용자 요청에서만, 자동 호출 없음, 정확한 노선·날짜가 있을 때만 (검색 스니펫 기준 2026-10-07)" },
+      { url: "https://developers.skyscanner.net/docs/flights-live-prices/refresh-prices", note: "Refresh Prices: 선택한 itinerary의 최신가(itineraryrefresh create/poll, 캐시 TTL 약 10분). 모니터링 API로 명시되지 않음" },
       { url: "https://ignav.com/docs/skyscanner-api-access", note: "(2차 자료) 접근은 승인된 파트너 한정, 예약 발생 목적 요구" },
     ],
   },
@@ -103,8 +133,20 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     dealFeed: "yes",
     officialApi: "unverified",
     partnerApi: "unverified",
-    publicWeb: "yes",
-    automation: "특가 콘텐츠/푸시 알림 중심(윙즈오더 24시간 한정 판매 등). 공개 특가 Feed·RSS·API는 검색에서 확인되지 않음. 앱 내부 API는 역공학하지 않음. Deal Provider로만 연결 예정.",
+    publicWeb: "unverified",
+    role: "deal",
+    scheduleSummary: "확인 전: 사용자 검색 ✗ / 백그라운드 ✗",
+    automation: "특가 콘텐츠/푸시 알림 중심(윙즈오더 24시간 한정 판매 등). 공개 특가 Feed·RSS·API는 검색에서 확인되지 않음(재조사 항목은 아래 점검표). 앱 내부 API는 역공학하지 않음. Deal Provider로만 연결 예정.",
+    publicDataChecklist: [
+      { item: "공개 특가 Feed", status: "UNVERIFIED", note: "검색에서 찾지 못함." },
+      { item: "앱이 쓰는 공개 API", status: "UNVERIFIED", note: "공식 공개 API 문서를 찾지 못함. 앱 내부 API 역공학·인증 우회는 하지 않음." },
+      { item: "공식 Web 페이지", status: "CONFIRMED", note: "https://www.playwings.co.kr (배너/프로모션 페이지 /banners/ 존재) — 특가 목록 페이지 구조는 미확인." },
+      { item: "공유 가능한 Deal URL", status: "UNVERIFIED", note: "개별 특가의 공개 공유 링크 형식 미확인." },
+      { item: "RSS", status: "UNVERIFIED", note: "검색에서 찾지 못함." },
+      { item: "Partner API / Affiliate", status: "UNVERIFIED", note: "문의 필요: contact@playwings.co.kr (항공사와의 API 계약은 공급 측 이야기이며 제3자 공개 API 근거가 아님)." },
+      { item: "공개 JSON endpoint", status: "UNVERIFIED", note: "개발자 도구로 사용자 확인 필요." },
+      { item: "robots.txt / 이용약관", status: "UNVERIFIED", note: "robots 미열람. 약관 페이지(/policies/terms.html) 존재 — 자동 수집 조항 미열람." },
+    ],
     connectionLabel: "특가 데이터 연결 조사 중 — 공식 Feed 미확인, 제휴 문의 필요",
     nextStep: "contact@playwings.co.kr 로 특가 데이터 제공(Feed/API/제휴) 문의 + 사용자가 로컬에서 robots.txt·이용약관 확인",
     robotsUrl: "https://www.playwings.co.kr/robots.txt",
@@ -129,9 +171,20 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     officialApi: "unverified",
     partnerApi: "unverified",
     publicWeb: "yes",
-    automation: "공식 웹(godflight.com)에 출발 7일 이내 땡처리 목록이 공개되고 카카오톡 알림·앱 제공. 날짜 지정 검색이 아니라 큐레이션 목록이라 Deal Provider 성격. 공개 API는 확인되지 않음. 자동 수집 허용 여부 UNVERIFIED.",
-    connectionLabel: "연결 방식 조사 중 — 공식 웹 확인, API 미확인",
-    nextStep: "사용자가 godflight.com 의 robots.txt·약관 확인 후 허용 시 공개 목록 기반 Deal Provider 구현, 또는 운영사에 제휴 문의(Instagram @godflight_official)",
+    role: "deal",
+    scheduleSummary: "약관·robots 확인 전: 사용자 검색 ✗ / 백그라운드 ✗ (승인 후 사용자 검색부터, 백그라운드는 별도 승인)",
+    automation: "공식 웹(godflight.com)에 출발 임박 특가 목록(출발지·도착지·가격·D-Day·출발/도착 날짜·요일·여행 기간)이 공개됨 → Public Web Deal Provider 후보. 날짜 검색이 아닌 '출발 임박 특가'라 FlightSearch가 아니라 DealProvider(GodFlightDealProvider). 사용자 검색과는 노선·날짜·여행 기간 유사도로 매칭하고 일반 가격 순위에는 넣지 않음. 약관·robots 확인 전 수집 OFF.",
+    connectionLabel: "공개 웹 특가(PUBLIC DEAL 후보) — 약관·robots 확인 후 수집",
+    nextStep: "① 로컬 브라우저로 godflight.com/robots.txt·약관 확인 ② 허용이면 GODFLIGHT_COLLECTION_APPROVED=yes ③ 페이지 소스 샘플을 공유하면 추출기 구현. 불확실하면 운영사에 제휴 문의(Instagram @godflight_official)",
+    publicDataChecklist: [
+      { item: "① 서버 렌더링 HTML 여부", status: "UNVERIFIED", note: "godflight.com 접근 차단(EGRESS_BLOCKED)으로 HTML 구조 미확인. 홈페이지에 7일 이내 출발 특가 목록이 표시된다는 설명만 확인." },
+      { item: "② 브라우저 렌더링 후 생성되는 데이터인지", status: "UNVERIFIED", note: "사용자 확인 필요(view-source vs 렌더 결과 비교)." },
+      { item: "③ 별도 JSON endpoint", status: "UNVERIFIED", note: "개발자 도구 Network 탭 확인 필요. 앱 내부 API 역공학은 하지 않음." },
+      { item: "④ pagination / filter URL", status: "UNVERIFIED", note: "앱은 출발 공항(ICN/GMP/PUS/TAE) 필터와 달력 보기를 제공한다고 알려짐 — 웹 URL 형식 미확인." },
+      { item: "⑤ robots.txt", status: "UNVERIFIED", note: "https://godflight.com/robots.txt — 사용자가 확인." },
+      { item: "⑥ 이용약관의 자동 수집 허용 여부", status: "UNVERIFIED", note: "약관 문구를 찾지 못함." },
+      { item: "⑦ 공개 데이터 갱신 주기", status: "INFERRED", note: "새 특가가 올라오면 카카오톡/앱 알림을 보낸다고 하므로 수시 갱신으로 추정 → 최소 60분 캐시로 제한." },
+    ],
     robotsUrl: "https://godflight.com/robots.txt",
     robotsStatus: "UNVERIFIED",
     evidence: [
@@ -140,6 +193,7 @@ export const SOURCE_PROFILES: SourceProfile[] = [
       { url: "https://apps.apple.com/kr/app/id6502391255", note: "App Store: 개발사 Puzzle Company, Inc." },
       { url: "https://play.google.com/store/apps/details?id=com.godflight.official", note: "Google Play (패키지 com.godflight.official)" },
       { url: "https://www.instagram.com/godflight_official/", note: "공식 Instagram: '땡처리 항공권 아카이빙'" },
+      { url: "https://godflight.com/", note: "홈페이지가 출발 7일 이내 할인 항공권 목록을 보여주고 카카오톡 알림 버튼 제공(검색 결과 요약, 2026-10-07)" },
     ],
   },
   {
@@ -149,11 +203,13 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     officialUrl: "https://www.aliexpress.com",
     operator: "AliExpress (Alibaba 그룹). 항공권 공급·연동: Fliggy",
     serviceType: ["Travel Platform"],
-    flightSearch: "yes",
+    flightSearch: "partial",
     dealFeed: "unverified",
     officialApi: "partial",
     partnerApi: "unverified",
-    publicWeb: "yes",
+    publicWeb: "unverified",
+    role: "flight",
+    scheduleSummary: "FlyAI는 실험적: 사용자 검색만 ✓(옵트인) / 백그라운드 ✗ — 정확한 이용 조건 확인 필요",
     automation: "AliExpress Travel 자체의 공개 API는 확인되지 않음. 공급원 Fliggy가 공식 개발자 플랫폼 FlyAI(open.fly.ai, MIT 라이선스 CLI `flyai search-flight`)를 제공 → 옵트인 어댑터 구현(CNY 가격, 환율 필요). 단 AliExpress Travel 한국 KRW 판매가와 같다는 보장은 없음.",
     connectionLabel: "Fliggy FlyAI 연결 준비 — 옵트인(ALI_PROVIDER_MODE=flyai)·환율 필요",
     nextStep: "서버에 `npm i -g @fly-ai/flyai-cli` 설치 → ALI_PROVIDER_MODE=flyai, FX_CNY_KRW 설정. FlyAI 이용약관/상업적 사용 조건은 open.fly.ai 에서 사용자가 확인",
@@ -179,7 +235,9 @@ export const SOURCE_PROFILES: SourceProfile[] = [
     dealFeed: "no",
     officialApi: "yes",
     partnerApi: "yes",
-    publicWeb: "yes",
+    publicWeb: "unverified",
+    role: "flight",
+    scheduleSummary: "사용자 검색 ✓(협약 후) / 백그라운드: 협약 조건 확인 필요 → 확인 전 ✗",
     reachability: "B",
     automation: "공식 Flight 개발자 문서(Shopping Offer/Booking/Payment/Order/Ticketing 등)가 공개되어 있음 = 가격 조회 API가 '없는' 것이 아니라 '협약 후 자격증명 발급'. OAuth 2.0, 협약 후 product support 팀에서 appKey/appSecret 발급. 별도로 Affiliate(링크 수익) 프로그램 존재.",
     connectionLabel: "파트너 승인 필요 — Flight API 협약 후 appKey/appSecret 발급",

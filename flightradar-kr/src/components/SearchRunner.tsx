@@ -8,7 +8,7 @@ import { formatKrw, formatMonthDay } from "@/lib/format";
 import type { FlightSearchRequest } from "@/types/domain";
 import { DemoBadge } from "./DemoBadge";
 import { OfferCard } from "./OfferCard";
-import { RelatedDeals, SavingsBanner } from "./RelatedDeals";
+import { SavingsBanner } from "./RelatedDeals";
 import { SourceProgress } from "./SourceProgress";
 import { SourceRows } from "./SourceRows";
 
@@ -98,13 +98,13 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
 
       {cheapest ? (
         <section className="rounded-2xl bg-brand p-5 text-white">
-          <p className="text-sm opacity-80">{result.dataMode === "demo" ? "데모 데이터 중 가장 저렴한 조건" : `현재 확인한 ${confirmed}개 서비스 중 가장 저렴한 조건`} (1인 기준)</p>
+          <p className="text-sm opacity-80">{result.dataMode === "demo" ? "데모 데이터 중 가장 저렴한 조건" : "실제 일정 기준 가장 저렴한 조건"} (1인 기준)</p>
           <p className="text-3xl font-bold">{formatKrw(cheapest.pricePerPerson)}</p>
           <p className="mt-1 text-xs opacity-80">{names[cheapest.provider] ?? cheapest.provider} · {cheapest.airline}</p>
         </section>
       ) : (
         <section className="rounded-2xl border border-dashed border-line bg-card p-5 text-sm text-muted">
-          지금은 비교할 수 있는 항공권 가격이 없어요. 아래 서비스에서 직접 확인해보세요.
+          지금은 비교할 수 있는 실제 일정 항공권 가격이 없어요. 아래 서비스 상태를 확인해보세요.
         </section>
       )}
 
@@ -112,13 +112,18 @@ export function SearchRunner({ request, query, sources, label }: { request: Flig
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">사이트별 결과 ({total}개 서비스)</h2>
+          <h2 className="text-sm font-semibold">실제 일정 가격 비교</h2>
           <button onClick={retry} className="text-xs text-brand underline">다시 조회</button>
         </div>
-        <SourceRows rows={result.sources} />
+        <p className="text-xs text-muted">정확한 날짜로 가격을 확인할 수 있는 서비스만 순위에 넣어요.</p>
+        <SourceRows rows={result.sources} role="flight" />
       </section>
 
-      <RelatedDeals deals={result.relatedDeals} names={names} />
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold">🔥 관련 특가</h2>
+        <p className="text-xs text-muted">특가는 일정이 정확히 같지 않을 수 있어 가격 순위에 넣지 않고 따로 보여드려요.</p>
+        <SourceRows rows={result.sources} role="deal" />
+      </section>
 
       {groups.length > 0 && (
         <section className="space-y-3">

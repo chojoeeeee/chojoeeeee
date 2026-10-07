@@ -122,10 +122,14 @@ export interface TravelDeal {
   travelStartDate?: string;
   travelEndDate?: string;
   airline?: string;
+  /** Where the deal came from; "public_web" = a page the service publishes openly. */
+  sourceType: SourceType;
   /** Per person, round trip unless the title says otherwise. */
   price: number;
   currency: string;
+  /** Reference ("average") price the discount is measured against. */
   originalPrice?: number;
+  /** Fraction 0..1 below the reference price (0.32 = 32% cheaper). */
   discountRate?: number;
   bookingUrl: string;
   publishedAt: string;

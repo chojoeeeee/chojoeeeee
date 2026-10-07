@@ -26,7 +26,7 @@ function deps(): EngineDeps {
 
 /** The six sources shown to the user, in display order. */
 export function listSources() {
-  return getSources().map((s) => ({ name: s.name, displayName: s.displayName, checkUrl: s.checkUrl, checkLabel: s.checkLabel }));
+  return getSources().map((s) => ({ name: s.name, displayName: s.displayName, role: s.role, checkUrl: s.checkUrl, checkLabel: s.checkLabel }));
 }
 
 /** Queries all six sources (used by the full-result API and, later, the scheduler). */

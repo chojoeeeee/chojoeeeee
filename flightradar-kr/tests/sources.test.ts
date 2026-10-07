@@ -9,8 +9,12 @@ afterEach(() => vi.unstubAllEnvs());
 const names = ["catchfrog", "skyscanner", "playwings", "chulguk", "ali-flight", "trip"];
 
 describe("the six required sources", () => {
-  it("are all registered", () => {
+  it("are all registered, with the right role on the result screen", () => {
     expect(getSources().map((s) => s.name)).toEqual(names);
+    const roles = Object.fromEntries(getSources().map((s) => [s.name, s.role]));
+    expect(roles).toEqual({ catchfrog: "deal", skyscanner: "flight", playwings: "deal", chulguk: "deal", "ali-flight": "flight", trip: "flight" });
+    // deal services have no flight-search adapter, so they can never enter the price ranking
+    for (const n of ["catchfrog", "playwings", "chulguk"]) expect(getSources().find((s) => s.name === n)?.flight).toBeUndefined();
   });
 
   it("are all attempted and shown without any keys or DEMO_MODE (nothing is invented)", async () => {
@@ -38,7 +42,7 @@ describe("the six required sources", () => {
     vi.stubEnv("SKYSCANNER_API_KEY", "");
     const res = await runSearch(request, { sources: getSources(), timeoutMs: 1000 });
     const st = Object.fromEntries(res.sources.map((s) => [s.provider, s.status]));
-    expect(st).toEqual({ catchfrog: "ok", skyscanner: "ok", playwings: "deals_only", chulguk: "manual_check", "ali-flight": "ok", trip: "ok" });
+    expect(st).toEqual({ catchfrog: "deals_only", skyscanner: "ok", playwings: "manual_check", chulguk: "deals_only", "ali-flight": "ok", trip: "ok" });
     expect(res.dataMode).toBe("demo");
     expect(res.summary).toEqual({ total: 6, confirmed: 5, live: 0 });
     expect(res.groups.every((g) => g.offers.every((o) => o.isDemo && o.sourceType === "demo"))).toBe(true);

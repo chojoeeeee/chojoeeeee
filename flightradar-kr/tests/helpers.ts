@@ -1,5 +1,5 @@
 import { generateDemoOffers } from "@/providers/mock/generator";
-import type { DealProvider, FlightProvider, SourceProvider } from "@/providers/types";
+import type { DealProvider, FlightProvider, ProviderSchedulePolicy, SourceProvider } from "@/providers/types";
 import type { DealQuery, FlightOffer, FlightSearchQuery, FlightSearchRequest, TravelDeal } from "@/types/domain";
 
 export const query: FlightSearchQuery = {
@@ -54,15 +54,20 @@ export function fakeDeal(name: string, impl: DealProvider["getDeals"]): DealProv
   };
 }
 
-export function fakeSource(name: string, parts: { flight?: FlightProvider["searchFlights"]; deal?: DealProvider["getDeals"]; demo?: boolean }): SourceProvider {
+export function fakeSource(name: string, parts: { flight?: FlightProvider["searchFlights"]; deal?: DealProvider["getDeals"]; demo?: boolean; role?: "flight" | "deal"; flightPolicy?: ProviderSchedulePolicy; dealPolicy?: ProviderSchedulePolicy }): SourceProvider {
+  const flight = parts.flight ? fakeProvider(name, parts.flight, parts.demo ?? true) : undefined;
+  const deal = parts.deal ? fakeDeal(name, parts.deal) : undefined;
+  if (flight && parts.flightPolicy) flight.schedulePolicy = () => parts.flightPolicy!;
+  if (deal && parts.dealPolicy) deal.schedulePolicy = () => parts.dealPolicy!;
   return {
     name,
     displayName: name,
+    role: parts.role ?? (parts.flight ? "flight" : "deal"),
     checkUrl: `https://example.com/${name}`,
     checkLabel: "사이트에서 직접 확인",
     directUrl: () => `https://example.com/${name}?search`,
-    flight: parts.flight ? fakeProvider(name, parts.flight, parts.demo ?? true) : undefined,
-    deal: parts.deal ? fakeDeal(name, parts.deal) : undefined,
+    flight,
+    deal,
   };
 }
 
@@ -82,6 +87,7 @@ export function deal(over: Partial<TravelDeal> = {}): TravelDeal {
     travelEndDate: "2026-11-14",
     price: 129000,
     currency: "KRW",
+    sourceType: "public_web",
     bookingUrl: "https://example.com/deal",
     publishedAt: "2026-10-07T00:00:00Z",
     rawSource: "test",

@@ -4,7 +4,7 @@ import { env, envInt } from "@/lib/env";
 import type { CabinClass, FlightOffer, FlightSearchQuery, ProviderHealth } from "@/types/domain";
 import { demoEnabled } from "../demo-mode";
 import { generateDemoOffers } from "../mock/generator";
-import { ProviderUnavailableError, type FlightProvider, type SearchContext, type SourceProvider } from "../types";
+import { ProviderUnavailableError, type FlightProvider, type ProviderSchedulePolicy, type SearchContext, type SourceProvider } from "../types";
 import { runFlyaiCli } from "./cli";
 import { mapFlyaiResponse } from "./mapper";
 
@@ -32,11 +32,16 @@ export class AliFlightProvider implements FlightProvider {
     return env("ALI_PROVIDER_MODE") === "flyai";
   }
 
+  schedulePolicy(): ProviderSchedulePolicy {
+    return { userInitiatedSearch: true, backgroundPolling: false, policyStatus: "unverified", notes: "FlyAI는 실험적 경로 — 호출 한도·상업적 사용·자동 조회 조건 확인 전까지 사용자 검색만" };
+  }
+
   isDemo(): boolean {
     return !this.live() && demoEnabled();
   }
 
   async searchFlights(query: FlightSearchQuery, ctx?: SearchContext): Promise<FlightOffer[]> {
+    if (ctx?.trigger === "background") throw new ProviderUnavailableError(NAME, "unavailable", "FlyAI 백그라운드 호출은 허용되지 않았습니다.");
     if (!this.live()) {
       if (demoEnabled()) return generateDemoOffers(query, { provider: NAME, bias: 1.12 });
       throw new ProviderUnavailableError(NAME, "manual_check", MANUAL_REASON);
@@ -69,6 +74,7 @@ const flight = new AliFlightProvider();
 
 export const aliFlight: SourceProvider = {
   name: NAME,
+  role: "flight",
   displayName: "알리항공권",
   checkUrl: "https://www.aliexpress.com",
   checkLabel: "알리익스프레스에서 직접 확인",

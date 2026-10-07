@@ -1,5 +1,6 @@
 import { CHECKED_AT, SOURCE_PROFILES, type Support } from "@/config/source-profiles";
 import { getSources } from "@/providers/sources";
+import { DEFAULT_SCHEDULE_POLICY, type ProviderSchedulePolicy } from "@/providers/types";
 import type { ProviderHealth } from "@/types/domain";
 
 export const dynamic = "force-dynamic";
@@ -49,12 +50,34 @@ export default async function ProvidersPage() {
               const b = BADGE[health.status] ?? BADGE.unavailable!;
               return <p key={String(label)} className="text-xs text-muted">{String(label)}: {b.dot} {b.label}{health.message && ` — ${health.message}`}</p>;
             })}
+            {[["항공권", source.flight?.schedulePolicy?.() ?? (source.flight ? DEFAULT_SCHEDULE_POLICY : undefined)], ["특가", source.deal?.schedulePolicy?.() ?? (source.deal ? DEFAULT_SCHEDULE_POLICY : undefined)]].map(([label, pol]) => {
+              const p = pol as ProviderSchedulePolicy | undefined;
+              if (!p) return null;
+              return (
+                <p key={String(label)} className="text-xs text-muted">
+                  호출 정책({String(label)}): 사용자 검색 {p.userInitiatedSearch ? "✓" : "✗"} · 백그라운드 {p.backgroundPolling ? "✓" : "✗"}
+                  {p.minimumInterval ? ` · 최소 ${p.minimumInterval}분 간격` : ""} · {p.policyStatus === "confirmed" ? "근거 확인됨" : "미확인(보수적 적용)"}
+                  {p.notes && ` — ${p.notes}`}
+                </p>
+              );
+            })}
             {profile && (
               <p className="text-xs text-muted">
                 공식 API {SUPPORT[profile.officialApi]} · 파트너 API {SUPPORT[profile.partnerApi]} · 공개 웹 {SUPPORT[profile.publicWeb]} · 유형 {profile.serviceType.join("/")}
               </p>
             )}
+            {profile && <p className="text-xs text-muted">자동 조회: {profile.scheduleSummary}</p>}
             {profile && <p className="text-xs text-muted">다음 단계: {profile.nextStep}</p>}
+            {profile?.publicDataChecklist && (
+              <details className="text-xs text-muted">
+                <summary className="cursor-pointer">공개 웹 데이터 점검표 ({profile.publicDataChecklist.filter((c) => c.status === "CONFIRMED").length}/{profile.publicDataChecklist.length} 확인)</summary>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {profile.publicDataChecklist.map((c) => (
+                    <li key={c.item}>{c.item}: <strong>{c.status}</strong> — {c.note}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
             <p className="flex flex-wrap gap-x-3 text-xs">
               <a href={source.checkUrl} target="_blank" rel="noopener noreferrer" className="text-brand underline">{source.checkLabel}</a>
               {profile && <a href={profile.robotsUrl} target="_blank" rel="noopener noreferrer" className="text-brand underline">robots.txt 확인</a>}

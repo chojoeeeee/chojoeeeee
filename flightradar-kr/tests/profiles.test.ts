@@ -44,13 +44,41 @@ describe("source research profiles", () => {
 
 describe("status badges", () => {
   it("never labels demo or unavailable data as LIVE", () => {
-    expect(badgeFor({ status: "ok", isDemo: false })).toBe("LIVE");
-    expect(badgeFor({ status: "no_results", isDemo: false })).toBe("LIVE");
-    expect(badgeFor({ status: "ok", isDemo: true })).toBe("DEMO");
-    expect(badgeFor({ status: "deals_only", isDemo: true })).toBe("DEMO");
-    expect(badgeFor({ status: "manual_check", isDemo: false })).toBe("MANUAL");
-    expect(badgeFor({ status: "api_required", isDemo: false })).toBe("API REQUIRED");
-    expect(badgeFor({ status: "partner_required", isDemo: false })).toBe("PARTNER REQUIRED");
-    for (const s of ["timeout", "error", "unavailable"] as const) expect(badgeFor({ status: s, isDemo: false })).toBe("ERROR");
+    expect(badgeFor({ status: "ok", isDemo: false, role: "flight" })).toBe("LIVE");
+    expect(badgeFor({ status: "no_results", isDemo: false, role: "flight" })).toBe("LIVE");
+    expect(badgeFor({ status: "ok", isDemo: true, role: "flight" })).toBe("DEMO");
+    expect(badgeFor({ status: "deals_only", isDemo: true, role: "flight" })).toBe("DEMO");
+    expect(badgeFor({ status: "manual_check", isDemo: false, role: "flight" })).toBe("MANUAL");
+    expect(badgeFor({ status: "api_required", isDemo: false, role: "flight" })).toBe("API REQUIRED");
+    expect(badgeFor({ status: "partner_required", isDemo: false, role: "flight" })).toBe("PARTNER REQUIRED");
+    expect(badgeFor({ status: "policy_skipped", isDemo: false, role: "flight" })).toBe("POLICY");
+    // deal sources: real data is a PUBLIC DEAL, never LIVE (it is not a date-searchable fare)
+    expect(badgeFor({ status: "deals_only", isDemo: false, role: "deal" })).toBe("PUBLIC DEAL");
+    expect(badgeFor({ status: "ok", isDemo: false, role: "deal" })).toBe("PUBLIC DEAL");
+    expect(badgeFor({ status: "deals_only", isDemo: true, role: "deal" })).toBe("DEMO");
+    for (const s of ["timeout", "error", "unavailable"] as const) expect(badgeFor({ status: s, isDemo: false, role: "flight" })).toBe("ERROR");
+  });
+});
+
+describe("public-web deal candidates (Catchfrog, GodFlight)", () => {
+  const byName = Object.fromEntries(SOURCE_PROFILES.map((p) => [p.name, p]));
+  it("are classified as deal sources with public web data, not flight search", () => {
+    expect(byName.catchfrog).toMatchObject({ role: "deal", dealFeed: "yes", publicWeb: "yes", flightSearch: "unverified" });
+    expect(byName.chulguk).toMatchObject({ role: "deal", dealFeed: "yes", publicWeb: "yes", flightSearch: "no" });
+  });
+  it("record the 7-point structure/terms checklist, with nothing falsely CONFIRMED", () => {
+    for (const n of ["catchfrog", "chulguk"]) {
+      const list = byName[n]!.publicDataChecklist!;
+      expect(list).toHaveLength(7);
+      expect(list.filter((c) => c.status === "CONFIRMED")).toEqual([]);
+      // robots and terms were not readable → must stay UNVERIFIED
+      expect(list.find((c) => c.item.includes("robots"))?.status).toBe("UNVERIFIED");
+      expect(list.find((c) => c.item.includes("약관"))?.status).toBe("UNVERIFIED");
+    }
+  });
+  it("Skyscanner is flight-only with no public-web collection; every profile has a schedule summary and role", () => {
+    expect(byName.skyscanner).toMatchObject({ role: "flight", dealFeed: "no", publicWeb: "no" });
+    expect(byName.skyscanner!.scheduleSummary).toContain("백그라운드 ✗");
+    for (const p of SOURCE_PROFILES) expect(["flight", "deal"]).toContain(p.role);
   });
 });

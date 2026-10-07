@@ -5,6 +5,7 @@ import { demoEnabled } from "../demo-mode";
 import { ProviderUnavailableError, type FlightProvider, type SearchContext } from "../types";
 import { generateDemoOffers } from "../mock/generator";
 import { searchLive } from "./client";
+import { SKYSCANNER_LIVE_POLICY } from "./policy";
 import { mapSkyscannerResponse } from "./mapper";
 import type { IndicativeDayPrice } from "./types";
 
@@ -28,11 +29,20 @@ export class SkyscannerProvider implements FlightProvider {
     return env("SKYSCANNER_API_KEY");
   }
 
+  schedulePolicy() {
+    return SKYSCANNER_LIVE_POLICY;
+  }
+
   isDemo(): boolean {
     return !this.apiKey() && demoEnabled();
   }
 
   async searchFlights(query: FlightSearchQuery, ctx?: SearchContext): Promise<FlightOffer[]> {
+    // Defence in depth: the engine already skips background calls, but a Live Prices
+    // request must never be made without a user action, whoever calls us.
+    if (ctx?.trigger === "background") {
+      throw new ProviderUnavailableError(this.name, "unavailable", "Skyscanner Live Prices는 사용자 검색에서만 호출할 수 있습니다 (자동/백그라운드 호출 금지).");
+    }
     const apiKey = this.apiKey();
     if (!apiKey) {
       if (demoEnabled()) return generateDemoOffers(query, { provider: this.name, bias: 1.03 });

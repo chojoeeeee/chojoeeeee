@@ -21,6 +21,7 @@ export function getSources(): SourceProvider[] {
     {
       name: skyscanner.name,
       displayName: skyscanner.displayName,
+      role: "flight",
       checkUrl: "https://www.skyscanner.co.kr",
       checkLabel: "사이트에서 직접 확인",
       // Skyscanner's public URL scheme: /transport/flights/<from>/<to>/<yymmdd>/<yymmdd>/
@@ -37,6 +38,7 @@ export function getSources(): SourceProvider[] {
     {
       name: trip.name,
       displayName: trip.displayName,
+      role: "flight",
       checkUrl: "https://kr.trip.com/flights/",
       checkLabel: "사이트에서 직접 확인",
       directUrl: () => "https://kr.trip.com/flights/",

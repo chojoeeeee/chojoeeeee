@@ -132,11 +132,15 @@ export function generateDemoOffers(query: FlightSearchQuery, opts: MockOptions):
     });
 }
 
+export type DemoDealStyle = "window+exact" | "catchfrog" | "godflight";
+
 /**
- * DEMO DATA ONLY. Two deals per search: a month-wide window deal and an exact
- * deal one day earlier (so the "shift your dates" tip can be exercised).
+ * DEMO DATA ONLY.
+ *  - "catchfrog": route + price + discount vs. average, no dates (like the public list).
+ *  - "godflight": one exact-date deal a day earlier (departing-soon list).
+ *  - "window+exact": a month-wide window deal plus an exact deal a day earlier.
  */
-export function generateDemoDeals(q: DealQuery, provider: string, now: Date = new Date()): TravelDeal[] {
+export function generateDemoDeals(q: DealQuery, provider: string, style: DemoDealStyle = "window+exact", now: Date = new Date()): TravelDeal[] {
   const origin = q.origins[0];
   const destination = q.destinations[0];
   if (!origin || !destination) return [];
@@ -144,7 +148,7 @@ export function generateDemoDeals(q: DealQuery, provider: string, now: Date = ne
   const round1000 = (n: number) => Math.round(n / 1000) * 1000;
   const month = monthBounds(q.departureDate);
   const publishedAt = now.toISOString();
-  const mk = (suffix: string, title: string, price: number, start: string, end: string): TravelDeal => ({
+  const mk = (suffix: string, title: string, price: number, start?: string, end?: string, extra: Partial<TravelDeal> = {}): TravelDeal => ({
     id: `${provider}:deal:${destination}:${suffix}:${q.departureDate}`,
     provider,
     isDemo: true,
@@ -155,13 +159,19 @@ export function generateDemoDeals(q: DealQuery, provider: string, now: Date = ne
     travelEndDate: end,
     price,
     currency: "KRW",
+    sourceType: "demo",
     bookingUrl: `https://example.com/demo/${provider}`,
     publishedAt,
     rawSource: "demo",
+    ...extra,
   });
-  const deals = [mk("window", `${destination} 왕복 특가`, round1000(base * 0.7), month.start, month.end)];
-  if (q.returnDate) {
-    deals.push(mk("exact", `${destination} 왕복 땡처리 특가`, round1000(base * 0.6), addDays(q.departureDate, -1), addDays(q.returnDate, -1)));
+  if (style === "catchfrog") {
+    const price = round1000(base * 0.85);
+    return [mk("avg", `${destination} 특가 항공권`, price, undefined, undefined, { originalPrice: round1000(price / 0.68), discountRate: 0.32 })];
   }
+  const exact = q.returnDate ? mk("exact", `${destination} 출발 임박 특가`, round1000(base * 0.6), addDays(q.departureDate, -1), addDays(q.returnDate, -1)) : undefined;
+  if (style === "godflight") return exact ? [exact] : [];
+  const deals = [mk("window", `${destination} 왕복 특가`, round1000(base * 0.7), month.start, month.end)];
+  if (exact) deals.push(exact);
   return deals;
 }
