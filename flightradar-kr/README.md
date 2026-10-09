@@ -1,0 +1,413 @@
+# FlightRadar KR · 항공권 특가 레이더
+
+여러 항공권 서비스의 가격을 한 곳에서 비교하고, 원하는 날짜·노선의 가격을 추적해 좋은 가격이 나왔을 때 알려주는 개인용 항공권 가격 추적 프로그램.
+
+> **핵심 원칙: 데이터 공급처 하나가 사라져도 프로그램 전체는 영향을 받지 않는다.**
+> 모든 공급처는 `Provider Adapter` 뒤에 있고, 검색은 `Promise.allSettled` + 타임아웃으로 격리된다.
+
+> 이 폴더는 GitHub 프로필 저장소(`chojoeeeee/chojoeeeee`) 안에 있으므로 루트의 프로필 `README.md`와 분리하기 위해 `flightradar-kr/` 하위에 만들었다. 별도 저장소로 옮길 때는 폴더째 이동하면 된다.
+
+## 개발 현황
+
+| Phase | 내용 | 상태 |
+|---|---|---|
+| 1 | 프로젝트/DB 스키마/검색 UI/Provider Adapter/가격 비교 + **6개 서비스 전부 조회** | 구현됨 |
+| 1.5 | **실제 Provider 연동 조사·구현** (Skyscanner 완성, FlyAI 옵트인, 근거 기록) | 구현됨 |
+| 1.5b | 캐치프로그·출국의 신 **공개 웹 Deal Provider** 재분류, Skyscanner **자동 호출 금지 정책**, Provider별 스케줄 정책, 결과 화면 2영역 분리 | **구현됨 (승인 대기)** |
+| 2 | Watchlist, 가격 히스토리·그래프, 정책 기반 Cron, Telegram 알림, 목표가·새 최저가·급락·관련 특가 알림, Deal Score | **구현됨 (승인 대기)** |
+| 3 | 날짜 ±N일 비교, 최저가 캘린더, 실제 Provider 연동(승인 후), 특가 Feed 연동 | 미착수 |
+| 4 | Deal Score, 가격 분석, 여행지 미정 검색, Web Push | 미착수 |
+
+### MVP 완료 조건 (12개) 진행 현황
+
+| # | 조건 | 상태 |
+|---|---|---|
+| 1 | 6개 Provider 모두 등록 | ✅ `src/providers/sources.ts` (테스트로 고정) |
+| 2 | 검색 시 6개 모두 조회 시도 | ✅ 소스별 `/api/search/source` 병렬 호출 + `Promise.allSettled` |
+| 3 | 각 Provider 상태 화면 표시 | ✅ 진행상태 + 결과 6행(성공/특가/결과없음/직접확인/오류…) |
+| 4 | 연결 가능한 Provider는 실제 데이터 | ⏳ Skyscanner는 키만 넣으면 LIVE(코드·테스트 완료, 실키 미검증), 알리항공권은 FlyAI 옵트인. **현재 키/승인이 없어 LIVE 0개** |
+| 5 | 자동 연결 불가 Provider의 이유·상태 표시 | ✅ `manual_check` + 사유 + 직접 확인 링크 |
+| 6 | 동일 기준 가격 비교 | ✅ KRW·1인 기준 정규화, 순위·가격차 |
+| 7 | 최저가 자동 계산 | ✅ |
+| 8 | 관련 특가 함께 표시 | ✅ 구조·UI 완료 (실제 특가 소스는 미연결, DEMO로만 확인) |
+| 9 | Watchlist 저장 | ✅ Phase 2 (`/watchlist`) |
+| 10 | 6개 Provider 재조회 | ✅ 검색 화면 "다시 조회", Watchlist "다시 확인"(사용자 호출) + 정책이 허용한 Provider만 백그라운드 |
+| 11 | 새 최저가 알림 | ✅ Phase 2 (Telegram, Dry Run 지원) |
+| 12 | 모바일 사용 | ✅ 390px 뷰포트 확인 (가로 넘침 없음) |
+
+## 아키텍처
+
+네 개의 엔진을 강하게 분리한다.
+
+| 엔진 | 역할 | 위치 | Phase |
+|---|---|---|---|
+| Search Engine | 6개 소스 병렬 조회(항공권+특가), 캐시, 장애 격리 | `src/features/flight-search/engine.ts` | 1 |
+| Comparison Engine | 정규화, 중복 제거, Provider별 비교, Smart Score, 추천 | `src/features/flight-search/{normalize,compare}.ts` | 1 |
+| Deal Engine | "정말 싼 가격인가?" 판정 (Deal Score) | `src/features/deal-engine/` | 4 |
+| Alert Engine | 중복 방지 포함 알림 발송 | `src/features/alerts/` | 2 |
+
+```
+UI (Server/Client Components)
+        │
+   /api/search  ·  /search (Server Component)
+        │
+  Search Engine ── cache(search_hash) ── Provider Registry
+        │                                     │
+  Promise.allSettled + timeout        ┌───────┼────────────────┐
+        │                         FlightProvider           DealProvider
+  Comparison Engine            (skyscanner, trip,        (catchfrog, playwings,
+                                mock-a, mock-b)           chulguk, ali-flight)
+```
+
+* **FlightProvider** = 일반 항공권 검색 결과(`FlightOffer`). **DealProvider** = 프로모션/특가 게시글(`TravelDeal`). 두 데이터는 별도 모델·별도 테이블로 관리한다.
+* Provider 상태: `connected` · `api_required` · `partner_required` · `unavailable` · `temporary_error` (+ 개발용 `demo`).
+* **DEMO DATA**: mock에서 나온 `FlightOffer`는 `isDemo: true`이며 UI에 항상 `DEMO DATA` 배지가 표시된다. 실제 데이터와 mock 데이터는 같은 결과 목록에 섞이지 않도록 구분 표시된다. 실제 가격을 임의로 생성하지 않는다.
+* 서비스 보호 장치(CAPTCHA, 로그인, anti-bot) 우회는 구현하지 않는다. 공식 API/제휴가 확인되지 않은 서비스는 Adapter + Mock(또는 `unavailable`)만 제공한다.
+
+## 최우선 요구사항: 6개 서비스 모두 조회
+
+캐치프로그 · Skyscanner · Playwings · 출국의 신 · 알리항공권 · Trip.com **6개 소스는 항상 등록되고, 검색할 때마다 모두 조회를 시도하며, 결과 화면에 항상 6개가 모두 표시된다.** 자동 조회가 불가능한 소스도 제거하지 않고 상태(`manual_check` 등)·이유·직접 확인 링크를 보여준다. 구현: `src/providers/sources.ts` (6개 고정), `src/features/flight-search/engine.ts`.
+
+## 서비스 조사 결과 (Phase 1.5)
+
+조사 기준일 **2026-10-07**. 근거는 웹 검색 결과와 공식 저장소(GitHub/npm) 열람이다.
+
+> **조사 한계**: 개발 환경의 네트워크 정책으로 `developers.skyscanner.net`, `developers.trip.com`, `catchfrog.ai`, `playwings.co.kr` 등 공식 페이지와 모든 `robots.txt`를 **직접 열람하지 못했다.** (환경 설정에서 해당 도메인을 허용하면 필드 단위 문서를 읽고 구현을 마저 할 수 있다.) 아래 표의 "확인"은 검색 결과·공식 저장소로 확인된 것이고, 읽지 못한 약관/robots는 `UNVERIFIED`다. **확인되지 않은 것은 추측으로 구현하지 않았다.**
+
+### A. 6개 서비스 최종 조사표 (Phase 1.5b 재분류)
+
+데이터의 **성격**으로 두 종류로 나눈다. **실제 일정 가격 비교**(날짜를 넣어 가격을 조회) / **관련 특가**(서비스가 공개한 특가 목록). 특가는 일정이 정확히 같지 않을 수 있어 항공권 가격 순위에 넣지 않는다.
+
+| Provider | 결과 화면 영역 | 정확한 서비스 | 공식 URL | 서비스 유형 | Flight Search | Deal | 공식 API | Partner API | 공개 Web | 자동조회(백그라운드) | 현재 상태 | 근거 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Skyscanner | 실제 일정 | 스카이스캐너 항공권 메타서치 | https://www.skyscanner.co.kr | Metasearch | **YES** | NO | **YES** | YES(승인제) | NO(수집 대상 아님) | **사용자 검색 LIVE ✓ / 백그라운드 ✗ (정책 제한)** | API REQUIRED | [Usage Guidelines](https://developers.skyscanner.net/docs/getting-started/usage-guidelines) · [Overview](https://developers.skyscanner.net/docs/flights-live-prices/overview) · [Create/poll](https://developers.skyscanner.net/docs/getting-started/create-and-poll) · [Refresh](https://developers.skyscanner.net/docs/flights-live-prices/refresh-prices) |
+| Trip.com | 실제 일정 | 트립닷컴 글로벌 OTA | https://kr.trip.com/flights/ | OTA, Affiliate | **YES** | NO | YES(문서 공개) | **Partner 필요(분류 B)** | 미확인 | 협약 조건 확인 필요 → 확인 전 백그라운드 ✗ | PARTNER REQUIRED | [Flight Docs](https://developers.trip.com/flight/?lang=en-US) · [Authentication](https://developers.trip.com/flight/guides/authentication/?lang=en-US) |
+| 캐치프로그 | 관련 특가 | 캐치프로그(Catchfrog) 여행 리워드·예약 플랫폼, 운영사 ㈜그루누이 | https://catchfrog.ai | Deal Service, Travel Platform | 미확인 | **YES** ("뚝 떨어진 항공권") | 미확인 | 미확인 | **YES** (노선·현재 가격·평균 대비 할인율 공개) | 약관·robots 확인 전 사용자 ✗ / 백그라운드 ✗ | MANUAL → 승인 후 **PUBLIC DEAL** | [catchfrog.ai](https://catchfrog.ai/) · [App Store](https://apps.apple.com/kr/app/id6737223338) · [한경 기사](https://magazine.hankyung.com/job-joy/article/202511056546d) |
+| 플레이윙즈 (Playwings) | 관련 특가 | 항공권·여행 특가 알림 서비스, 운영사 ㈜타이드스퀘어 | https://www.playwings.co.kr | Deal Service, Travel Platform | 미확인 | **YES** | 미확인 | 미확인 | **재조사 필요**(Feed/RSS/공개 JSON 미확인) | 확인 전 ✗ / ✗ | MANUAL | [공식 웹](https://www.playwings.co.kr/banners/) · [약관](https://www.playwings.co.kr/policies/terms.html) |
+| 출국의 신 | 관련 특가 | 출국의 신(Godflight) — 출발 임박 땡처리·취소표 특가, 앱 개발사 Puzzle Company, Inc. | https://godflight.com | Deal Service | **NO**(날짜 검색이 아닌 임박 특가 목록) | **YES** | 미확인 | 미확인 | **YES** (출발지·도착지·가격·D-Day·출발/도착 날짜·요일·여행 기간 공개) | 약관·robots 확인 전 사용자 ✗ / 백그라운드 ✗ | MANUAL → 승인 후 **PUBLIC DEAL** | [godflight.com](https://godflight.com/) · [앱 안내](https://godflight.com/app) · [App Store](https://apps.apple.com/kr/app/id6502391255) |
+| 알리항공권 | 실제 일정 | AliExpress Travel 항공권(공급원 Fliggy) | https://www.aliexpress.com | Travel Platform | 가능성 있음(FlyAI 실험) | 미확인 | 부분(FlyAI) | 미확인 | 미확인 | FlyAI 실험적: 사용자 ✓(옵트인) / 백그라운드 ✗ — 정확한 이용 조건 확인 필요 | MANUAL → 옵트인 시 LIVE(CNY) | [Newsis](https://www.newsis.com/view/ALSX20250605_0000003125) · [FlyAI](https://open.fly.ai/) · [flyai-skill](https://github.com/alibaba-flyai/flyai-skill) |
+
+같은 정보가 코드의 `src/config/source-profiles.ts`에 있고 `/admin/providers`와 테스트가 이를 사용한다. "공개 Web = YES"는 **데이터가 공개 페이지에 노출된다**는 뜻이지 **자동 수집이 허용된다**는 뜻이 아니다 (약관·robots 확인 필요).
+
+### B. 실제 데이터(LIVE) 연결 상태
+
+| Provider | 지금 LIVE 가능? | 조건 |
+|---|---|---|
+| Skyscanner | **키만 넣으면 가능** (코드 완성) | `SKYSCANNER_API_KEY` — 승인 필요 |
+| 알리항공권 | 옵트인하면 가능 (미검증) | `npm i -g @fly-ai/flyai-cli`, `ALI_PROVIDER_MODE=flyai`, `FX_CNY_KRW` |
+| Trip.com | 불가 | 파트너 협약 + Shopping 스키마 확인 필요 |
+| 캐치프로그 / 출국의 신 | 아직 불가(구조 준비 완료) | 약관·robots 허용 확인 → `*_COLLECTION_APPROVED=yes` → 페이지 구조 확인 후 추출기 구현 |
+| 플레이윙즈 | 불가 | 공식 Feed/제휴 확인 또는 약관·robots 확인 후 |
+
+현재 **키/승인이 있는 서비스가 없어 LIVE 데이터는 0개**다. 화면은 서비스마다 `LIVE` / `PUBLIC DEAL` / `DEMO` / `MANUAL` / `API REQUIRED` / `PARTNER REQUIRED` / `POLICY` / `ERROR` 배지를 붙여 실제 가격과 테스트 가격을 혼동할 수 없게 한다.
+
+### C. Skyscanner 구현 내용
+
+* `POST /apiservices/v3/flights/live/search/create` → `POST …/poll/{sessionToken}` 를 `RESULT_STATUS_COMPLETE`까지(최대 횟수 제한) 반복. `RESULT_ACTION_NOT_MODIFIED`면 기존 결과 유지, 상한 도달 시 부분 결과 반환. (`src/providers/skyscanner/client.ts`)
+* 401/403 → `api_required`(키 거부), 429/5xx → 일반 오류. 오류 메시지에 키·응답 본문을 넣지 않는다.
+* 매핑(`mapper.ts`): 항공사, 출·도착 공항(응답 `places`의 IATA), 출·도착 시각(공항 시간대 반영), 귀국편, 경유 수, 총 소요시간, 가격(milli-unit→원, 1인당/총액), 통화, **판매처(agent 이름, mashup은 " + ")**, 딥링크, 조회 시각. 한 itinerary에 pricing option이 여럿이면 최저가를 쓴다. 가격 없는 itinerary·시간대 불명 공항은 건너뛴다(만들어내지 않음).
+* 테스트 fixture: `tests/fixtures/skyscanner-*.json` — **공식 문서 구조를 따라 손으로 쓴 것**이며 실제 캡처가 아니다. 실제 키로 첫 호출 시 필드 차이가 나올 수 있다.
+* Indicative Prices(날짜 탐색)는 Phase 3. **Live 호출은 사용자 검색에서만** — 자동/백그라운드 호출 금지(아래 J).
+
+### D. Trip.com 분류
+
+**분류: B — Partner 승인 후 API 연결 가능** (보조: C — Affiliate 딥링크)
+
+* "가격 조회 API가 공개되어 있지 않음"이 아니라 **API 문서는 공개되어 있고 자격증명이 협약 후 발급**되는 구조다. 문서에는 Shopping Offer, Booking, Payment, Order, Ticketing, Refund 등이 있고, 인증은 OAuth 2.0이며 "cooperation agreement 이후 product support 팀이 appKey/appSecret 발급"이라고 안내한다.
+* 신청할 곳: https://developers.trip.com/flight/ 의 파트너 협력(product support) 문의. Affiliate는 별도 프로그램(https://www.trip.com/ask/questions/trip.com-affliate-program.html)으로 **추적 링크 수익화용**이며 가격 조회 API가 아니다. `connect.trip.com`은 호텔 중심 Connectivity 플랫폼으로 항공 가격 API와 다르다.
+* 구현 보류 이유: Shopping Offer 요청/응답 필드는 이 환경에서 열람하지 못했다. 필드를 추측해 매퍼를 쓰지 않았고, 상태는 `partner_required`다. 자격증명 환경변수(`TRIP_APP_KEY`/`TRIP_APP_SECRET`)만 준비했다.
+* 위 5단계 분류(A~E) 중 B, 근거는 위 표의 Docs/Authentication 링크.
+
+### E. 알리항공권 — 이름 정리 (합치지 않음)
+
+| 이름 | 정체 | 근거 |
+|---|---|---|
+| **AliExpress Travel (알리익스프레스 트래블)** | 2025-06 한국 정식 론칭한 AliExpress의 여행 플랫폼. 사용자가 말하는 **"알리항공권"은 이 서비스의 항공권** | [Newsis](https://www.newsis.com/view/ALSX20250605_0000003125), [한경](https://www.hankyung.com/article/202506057366g) |
+| **Fliggy (飞猪)** | Alibaba 계열 OTA. AliExpress Travel에 **항공권·호텔 재고를 연동해 공급** — 별개 서비스 | [Korea Herald](https://www.koreaherald.com/article/10503653) |
+| **FlyAI** | Fliggy의 개발자 플랫폼/CLI(`@fly-ai/flyai-cli`, MIT). AliExpress 앱이 아니다 | [open.fly.ai](https://open.fly.ai/) |
+| AliTrip | Fliggy의 구 명칭으로 알고 있으나 **이번 조사에서 확인하지 못함(미확인)** | — |
+| 한국 AliExpress 앱 내 여행 메뉴 | AliExpress Travel(여행전문관)과 동일한 것으로 보도됨 | [머니투데이](https://www.mt.co.kr/living/2025/06/05/2025060515285797231) |
+| "알리 항공권(ARL)" | Trip.com의 공항 코드 ARL 페이지 — **이름만 비슷한 무관한 것** | [Trip.com](https://kr.trip.com/flights/to-arly/airfares-arl/) |
+
+FlyAI 어댑터가 주는 값은 **Fliggy의 CNY 가격**이다. AliExpress Travel 한국의 KRW 판매가와 같다는 보장이 없어 옵트인으로만 켜지고 신뢰도(`confidence`)도 낮게 둔다. 출력 스키마(`adultPrice`, `journeys[].segments[]`, `jumpUrl`)는 공식 `search-flight.md` 문서 기준이며 왕복 응답 구조는 미검증이다(왕복은 `journeys[0]`=가는 편, `[1]`=오는 편으로 가정, 없으면 건너뜀).
+
+### F. 서비스명 확정
+
+"플라이윙즈"는 프로젝트 전체에서 **플레이윙즈 (Playwings)** 로 통일했다. 검색 결과상 실제 서비스명이 플레이윙즈(운영 ㈜타이드스퀘어, playwings.co.kr)다.
+
+### G. robots.txt 확인 (사용자 작업)
+
+`robots_status: UNVERIFIED` — 자동 수집을 영구 포기한 것이 아니라 **확인 전에는 실행하지 않는 것**이다. 로컬 브라우저에서 아래 URL과 각 서비스 이용약관을 확인해 주세요. 허용되는 경우에만 해당 Provider를 구현한다.
+
+| 서비스 | robots.txt | 이용약관/정책 |
+|---|---|---|
+| 캐치프로그 | https://catchfrog.ai/robots.txt | catchfrog.ai 하단 약관 |
+| Skyscanner | https://www.skyscanner.co.kr/robots.txt | API 사용은 공식 API 약관이 우선 |
+| 플레이윙즈 | https://www.playwings.co.kr/robots.txt | https://www.playwings.co.kr/policies/terms.html |
+| 출국의 신 | https://godflight.com/robots.txt | godflight.com 하단 약관 |
+| 알리항공권 | https://www.aliexpress.com/robots.txt | AliExpress 이용약관 / FlyAI 약관(open.fly.ai) |
+| Trip.com | https://kr.trip.com/robots.txt | Trip.com 이용약관 / Partner 계약 |
+
+### H. 수집 방식 우선순위
+
+1. 공식 API → 2. Partner API → 3. Affiliate/Feed → 4. Widget → 5. 공식 공개 JSON → 6. 공식 공개 Web 데이터 → 7. **허용 여부 확인 후** 브라우저 수집.
+CAPTCHA·로그인·Cloudflare·anti-bot 우회, 세션 탈취, 앱 내부 API 역공학은 하지 않는다. `BrowserFlightProvider extends FlightProvider { mode: "browser" }` 인터페이스는 `src/providers/types.ts`에 **구조만** 있고 구현체·Playwright 실행은 없다.
+
+### I. 필요한 사용자 작업
+
+| 순서 | 할 일 | 어디서 |
+|---|---|---|
+| 1 | Skyscanner Flights Live Prices API 접근 신청 | https://partners.skyscanner.net (심사, 개인 승인은 보장되지 않음 — 예약 발생 목적 요구) |
+| 2 | Trip.com Flight API 파트너 협력 문의 / (보조) Affiliate 가입 | https://developers.trip.com/flight/ , Trip.com Affiliate |
+| 3 | 로컬 브라우저로 6개 robots.txt·약관 확인 후 결과 공유 | 위 G 표 |
+| 3-1 | **캐치프로그·출국의 신**: 약관·robots 확인 → 허용이면 `CATCHFROG_COLLECTION_APPROVED=yes` / `GODFLIGHT_COLLECTION_APPROVED=yes` 설정, 그리고 **페이지 소스(view-source) 샘플과 Network 탭의 JSON 요청 유무를 공유** (추출기 구현에 필요) | 각 사이트 robots.txt·약관 |
+| 3-2 | Skyscanner 파트너 계약/담당자에게 **"Watchlist용 자동 가격 확인이 허용되는지, Indicative/Refresh의 자동 호출 범위"** 확인 | Skyscanner Partners 담당자 |
+| 4 | 플레이윙즈에 특가 Feed/제휴 문의 | contact@playwings.co.kr |
+| 5 | 캐치프로그에 데이터/제휴 API 문의 | catchfrog@groonui.com |
+| 6 | 출국의 신 운영사에 제휴 문의 | Instagram @godflight_official (공식 이메일은 미확인) |
+| 7 | (선택) FlyAI 옵트인: 약관 확인 후 CLI 설치, `ALI_PROVIDER_MODE=flyai`, `FX_CNY_KRW` 설정 | https://open.fly.ai/ |
+| 8 | (선택) 개발 환경 네트워크에서 공식 문서 도메인 허용 → Trip.com 매퍼/각 서비스 정밀 조사 | 환경 설정 > Network access |
+
+### J. Skyscanner 사용 정책 반영 (자동 Live 호출 금지)
+
+Skyscanner Usage Guidelines(2026-10-07 확인, 검색 스니펫 기준)는 Live Pricing 호출이 **사용자 요청에서만** 발생해야 하고(*"Live Pricing Service calls are only made on user-generated requests, and automated requests (calls without user action) … do not occur"*), **정확한 출발·도착과 날짜가 모두 정해졌을 때만** 호출하도록 요구한다. 따라서 "Watchlist를 6시간마다 Live API로 자동 조회"는 **구현하지 않는다.**
+
+| Skyscanner 기능 | 용도 | 사용자 검색 | 백그라운드 | 정책 상태 |
+|---|---|---|---|---|
+| **Flights Live Prices** (create → poll) | 사용자가 검색 버튼을 눌렀을 때 실제 일정 가격 | ✓ | **✗** | **confirmed** (Usage Guidelines) |
+| **Indicative Prices** | 정확한 날짜가 없는 날짜 탐색(Flexible/Explore) — **검토 단계, 미구현** | ✓(검토) | ✗ | unverified — 파트너 계약 확인 전까지 자동 호출 금지 |
+| **Itinerary Refresh** (`/itineraryrefresh/create`, `/poll`) | 사용자가 **선택한 항공편**의 최신가(세션 토큰+itinerary id 필요, 캐시 약 10분) | ✓(미구현) | ✗ | unverified — 정확도 용도이며 모니터링 API로 해석하지 않음. 파트너 정책 확인 전 백그라운드 금지 |
+
+구현: 정책 상수는 `src/providers/skyscanner/policy.ts`(기능별 분리). `SkyscannerProvider`는 `trigger: "background"` 호출을 **네트워크 호출 없이 거부**하고, 엔진도 정책으로 한 번 더 막는다(이중 장치). 파트너 계약에서 자동 가격 추적이 명시적으로 허용되면 해당 상수만 바꾸면 된다.
+
+### K. Provider별 자동 조회(스케줄) 정책
+
+`ProviderSchedulePolicy { userInitiatedSearch, backgroundPolling, minimumInterval?, policyStatus, notes? }` — **Provider마다 독립 관리**(각 Provider 파일), 선언이 없으면 **보수적 기본값(사용자 검색만, 백그라운드 금지)**.
+
+| Provider | 사용자 검색 | 백그라운드 | 최소 간격 | 근거 상태 | 비고 |
+|---|---|---|---|---|---|
+| Skyscanner Live | ✓ | **✗** | — | confirmed | Usage Guidelines |
+| Skyscanner Indicative / Refresh | ✓ | ✗ | — | unverified | 계약 확인 전 금지 |
+| Trip.com | ✓(협약 후) | ✗ | — | unverified | 협약 조건 확인 필요 |
+| 캐치프로그 | 승인 전 ✗ | 승인 전 ✗ | 60분(캐시) | unverified | `CATCHFROG_COLLECTION_APPROVED`, 백그라운드는 `CATCHFROG_BACKGROUND_APPROVED` 별도 |
+| 출국의 신 | 승인 전 ✗ | 승인 전 ✗ | 60분(캐시) | unverified | `GODFLIGHT_COLLECTION_APPROVED`, `GODFLIGHT_BACKGROUND_APPROVED` |
+| 플레이윙즈 | ✗ | ✗ | — | unverified | 자동 수집 방식 미확인 |
+| 알리항공권(FlyAI) | ✓(옵트인) | ✗ | — | unverified | 실험적 경로 |
+
+엔진은 `trigger: "user" | "background"`를 받는다(기본 `user`). `background`일 때 정책이 금지한 Provider는 **호출하지 않고** `policy_skipped`로 표시한다. flight/deal 부분도 따로 판단한다.
+
+### L. 캐치프로그·출국의 신 — 공개 웹 구조 점검표 (7개 항목)
+
+두 사이트 모두 개발 환경에서 직접 열람이 막혀(EGRESS_BLOCKED) **HTML 구조는 확인하지 못했다.** 사용자가 알려준 공개 필드는 파서 입력 타입으로 반영했다. 상태: `CONFIRMED` / `INFERRED`(추정) / `UNVERIFIED`.
+
+| 점검 항목 | 캐치프로그 | 출국의 신 |
+|---|---|---|
+| ① 서버 렌더링 HTML 여부 | INFERRED — 검색 결과에 노선·가격·할인율 텍스트 노출(세부 257,900원 -45.0%, 후쿠오카 165,300원 -44.7%) | UNVERIFIED |
+| ② 브라우저 렌더링 후 생성 | UNVERIFIED | UNVERIFIED |
+| ③ 별도 JSON endpoint | UNVERIFIED (앱 내부 API 역공학은 하지 않음) | UNVERIFIED |
+| ④ pagination / filter URL | UNVERIFIED | UNVERIFIED (앱은 ICN/GMP/PUS/TAE 필터, 달력 보기) |
+| ⑤ robots.txt | UNVERIFIED | UNVERIFIED |
+| ⑥ 약관의 자동 수집 허용 | UNVERIFIED | UNVERIFIED |
+| ⑦ 갱신 주기 | UNVERIFIED (앱은 "실시간 가격 변동 분석") | INFERRED — 새 특가가 올라오면 알림 → 수시 갱신 추정 |
+
+**구현 상태**: `CatchfrogDealProvider`, `GodFlightDealProvider`, 원본→`TravelDeal` 매퍼(`mapper.ts`), robots.txt 파서(`providers/robots.ts`), 정중한 수집기(`providers/public-web.ts`: robots 선확인·UA 명시·캐시·크기 제한)가 있다. **수집은 기본 OFF**이며 사용자가 약관·robots를 확인하고 `*_COLLECTION_APPROVED=yes`를 지정해야 한다. 승인 후에도 **HTML 추출기는 구조 미확인이라 구현하지 않았다** (`StructureUnverifiedError` → 화면에는 `MANUAL`). 페이지 소스(view-source) 샘플을 주면 추출기를 완성한다.
+
+* 캐치프로그 매퍼: 출발지·목적지·현재 가격·평균 대비 할인율 → `TravelDeal`(날짜 없음 → "같은 노선의 특가"). 평균가가 없고 할인율만 있으면 `가격/(1−할인율)`로 계산(페이지가 둘 다 주면 페이지 값을 그대로 사용).
+* 출국의 신 매퍼: 출발지·도착지·가격·D-Day·출발 날짜·도착 날짜·요일·여행 기간 → `TravelDeal`. 연도 없는 날짜는 오늘 기준 다음 도래일로 추정하고, **요일이 날짜와 안 맞거나 종료일이 시작일보다 앞서면 그 행을 버린다**(고쳐 쓰지 않음). "도착 날짜"는 여행 종료일(귀국)로 간주했다 — 가정이며 실제 열 의미 확인 필요.
+* 출국의 신은 `FlightSearchProvider`가 아니라 `DealProvider`로만 등록된다.
+
+### M. 결과 화면 구성
+
+1. **실제 일정 가격 비교** — 날짜 검색이 되는 Provider(Skyscanner, Trip.com, 알리항공권 등)만 순위·가격차 표시.
+2. **🔥 관련 특가** — 캐치프로그·플레이윙즈·출국의 신(·Ali 특가). 가격 순위에 넣지 않는다. 선택한 노선과 일정에 맞는 것만 보여준다.
+   * 매칭 조건: **출발지 일치(같은 도시권 포함) · 목적지 일치 · 날짜 범위 유사(±3일) · 여행 기간 유사(±1일)**. 일정이 정확히 같거나 기간형 특가(선택 일정을 포함)면 그대로, 하루 차이 같은 경우는 "비슷한 일정 특가"로 표시.
+   * 예: ICN→도쿄 11/12~11/15 검색, 출국의 신 ICN→도쿄 11/11~11/14 139,000원, 최저 항공권 178,000원 → "일정을 하루 앞당기면 1인당 약 39,000원 절약" (테스트로 검증).
+3. 6개 서비스는 두 영역 중 하나에 **항상** 표시(자동 조회 불가·정책으로 건너뜀·오류 포함).
+
+### N. Phase 2에서 구현 가능한 자동 알림 방식 (Phase 2는 아직 시작 안 함)
+
+Watchlist Engine과 Provider Search Engine을 분리한다. Watchlist 쪽은 Provider를 직접 부르지 않고 `planBackgroundRefresh()`(`src/features/alerts/background-plan.ts`)로 "이번 실행에서 호출해도 되는 Provider"를 정책에서 받아 `runSearch({trigger:"background"})`에 넘긴다. 엔진이 같은 규칙을 한 번 더 강제한다.
+
+| 알림 종류 | 대상 | 동작 |
+|---|---|---|
+| **A. Background Alert** | 정책이 백그라운드를 허용한 데이터 (현재: 없음. 승인·계약 후 캐치프로그/출국의 신 공개 특가 등) | 스케줄러가 최소 간격을 지켜 조회 → 새 최저가/목표가 도달 시 Telegram |
+| **B. User Refresh Alert / Status** | 사용자 검색에서만 조회 가능한 Live 데이터 (Skyscanner Live, Trip.com 등) | 자동 조회 없음. Watchlist 카드에 "마지막 확인 가격/시각"을 보여 주고, 사용자가 앱을 열거나 검색할 때 재조회 → 그때 가격이 내려갔으면 알림/배지 |
+
+정리: 현재 기본 설정에서는 **백그라운드로 호출 가능한 Provider가 0개**이므로, Phase 2 초기에는 B 방식(사용자 새로고침 시 알림)이 중심이고 A는 약관·계약 확인이 끝난 Provider부터 하나씩 켠다. Provider 공식 가격 알림 API가 확인되면 별도 연결한다.
+
+### Provider 상태 값
+`ok`(가격 확인) · `deals_only`(특가만 확인) · `no_results`(조회 성공, 결과 없음) · `manual_check`(자동 조회 불가, 직접 확인) · `api_required` · `partner_required` · `unavailable` · `timeout` · `error` · `policy_skipped`(백그라운드 호출이 정책상 허용되지 않아 건너뜀)
+
+### DEMO_MODE
+`DEMO_MODE=true`이면 키/승인이 없는 소스가 **DEMO DATA**(`DEMO` 배지)로 채워진다. 실제 키가 설정된 Skyscanner는 DEMO_MODE와 무관하게 실제 호출을 쓴다. 실제 데이터가 하나라도 있으면 데모는 비교에서 제외된다. 운영에서는 `false`.
+
+## 화면 구조 (사용자 / 관리자)
+
+사용자는 **검색 → 결과 확인 → 가격 알림 등록** 3단계만 본다. Provider·정책·API 상태 같은 개발자 정보는 `/admin`에만 있다.
+
+| 구분 | 경로 | 내용 |
+|---|---|---|
+| 사용자 | `/` | 출발지·도착지·출국일·귀국일·인원, `직항만`, `날짜 ±3일도 비교`, **6개 사이트 비교하기** |
+| 사용자 | `/search` | 현재 최저가(가장 크게) → 실제 일정 가격 비교(가격·항공사·직항·수하물·판매처·확인하기) → (±3일 켜면) 다른 날짜 가격 → 관련 특가 → 하단 고정 **이 항공권 가격 알림 받기** |
+| 사용자 | `/watchlist` | 노선·여행일·현재 가격·목표 가격·등록 당시·변화율·알림 상태·다시 확인 (+ 일시정지/삭제 링크), `/watchlist/[id]`에 가격 그래프 |
+| 사용자 | `/settings/notifications` | 알림 연결 상태, 알림 종류 on/off, 테스트 알림 |
+| 관리자 | `/admin`, `/admin/providers`, `/admin/watchlists`, `/admin/search` | 서비스 연결·정책·호출 통계·조사 근거, Watchlist 통계, DEMO 가격 하락 시뮬레이션, 서비스별 상태 표 |
+
+* **관리자 보호**: 메뉴에 링크가 없고, `ADMIN_PASSWORD`를 설정하면 HTTP Basic 인증(아무 사용자명 + 그 비밀번호), **운영(production)에서 비밀번호가 없으면 404**로 존재 자체를 숨긴다. 개발 환경에서는 열려 있다. (`src/proxy.ts`, `src/lib/admin-auth.ts`)
+* **사용자용 문구**: 개발자 상태를 쉬운 말로 바꾼다 — `API REQUIRED`→"현재 자동 조회 준비 중", `PARTNER REQUIRED`→"제휴 연결 준비 중", `MANUAL`→"직접 확인", `DEMO`→"테스트 데이터", `LIVE`→"실시간 확인", `PUBLIC DEAL`→"공개 특가", `POLICY SKIPPED`→표시 안 함. (`src/lib/status-labels.ts`; 개발자 라벨은 `/admin`에서만 사용)
+* **±3일 비교**: 켰을 때만 동작한다. 선택한 일정이 끝난 뒤 **날짜 조합 6개 × 항공권 서비스**를 최대 3개 조합씩 조회한다(조합마다 정확한 날짜의 사용자 검색). 호출이 늘어나므로 기본은 꺼짐이며, Live API 사용량이 걱정되면 켜지 않는 것이 좋다. 특가 서비스는 날짜별로 다시 조회하지 않는다.
+* 테스트(DEMO) 데이터는 최저가 카드에 "테스트 데이터"로 한 번, 상단 안내 한 줄로 표시하고, 예약 링크가 없는 버튼은 비활성으로 보여준다. DEMO/LIVE를 섞지 않는 규칙은 그대로다.
+
+## Phase 2 — Watchlist · 가격 기록 · 알림
+
+목표: 사용자가 항공권을 저장하고, 가격 변화를 기록하고, **허용된 Provider에서** 목표가 도달·새 최저가·특가가 생기면 알림을 받는다. **6개 Provider를 백그라운드에서 강제로 호출하지 않는다** — 모든 자동 호출은 `ProviderSchedulePolicy`/`planBackgroundRefresh()`를 따른다.
+
+### 흐름
+
+```
+[이 가격 추적하기] → POST /api/watchlists ─ 초기 가격 조회(사용자 행동, 최근 검색 캐시 재사용, 알림 없음)
+                                                │
+ ┌────────────── 사용자 "다시 확인" ──────────────┤  ┌──────── Cron /api/cron/watchlists ────────┐
+ │ trigger = user                                │  │ trigger = background                      │
+ │ 모든 Provider(사용자 검색 허용) 호출            │  │ ① planBackgroundRefresh()가 준 부분만       │
+ │ 60초 throttle                                 │  │ ② 엔진이 정책 재검사 ③ Provider가 재검사     │
+ └───────────────┬───────────────────────────────┘  └───────────────┬───────────────────────────┘
+                 └──── ingestRefresh(): 가격 저장 → 현재가/변화/Deal Score → evaluateAlerts() → NotificationService → Telegram
+```
+
+* **같은 함수**(`ingestRefresh` → `evaluateAlerts`)가 사용자 새로고침과 백그라운드를 모두 처리한다 (`src/features/watchlist/refresh.ts`).
+* **Watchlist Engine ⟂ Provider Search Engine**: 스케줄러는 Provider를 직접 부르지 않고 정책 계획을 받아 `runSources({trigger})`에 넘긴다.
+* **정책 3단계 보호**: ① Scheduler(`planBackgroundRefresh`) ② Engine(`policyViolation` → `policy_skipped`) ③ Provider(`ctx.trigger === "background"` 거부 — Skyscanner/Trip.com/FlyAI/캐치프로그/출국의 신).
+* **허용된 Provider가 0개여도 정상**: Cron은 네트워크 호출 없이 정상 종료(`outcomes: {no_provider: N}`).
+* **나중에 Provider가 승인되면**: 해당 Provider의 정책을 `backgroundPolling = true`, `minimumInterval = 3_600_000`(ms)로 바꾸기만 하면 스케줄러 코드 수정 없이 자동 포함된다. (캐치프로그/출국의 신은 환경변수 `*_BACKGROUND_APPROVED=yes`로 정책이 바뀐다.) `minimumInterval` 단위는 **밀리초**.
+
+### 알림 조건 (Alert Engine: `src/features/alerts/evaluate.ts`)
+
+| 타입 | 조건 | 중복 방지 |
+|---|---|---|
+| `TARGET_REACHED` | 현재가 ≤ 목표가 | **최초 도달 1회**. 가격이 목표가 위로 올라갔다가 다시 내려오면 재무장 |
+| `PRICE_DROP` | 마지막 *알림* 가격(없으면 등록 가격) 대비 **≥ N%(기본 5%) 또는 ≥ 10,000원** 추가 하락 | 쿨다운 |
+| `NEW_LOW` | 이전 기록 최저가보다 낮음(기록이 있어야 함, 같은 값은 아님) | 쿨다운 |
+| `RELATED_DEAL` | 날짜 ±3일·여행기간 ±1일의 특가가 현재 항공권(또는 목표가)보다 저렴 | 특가 ID별 1회, 가격이 기준만큼 더 내려갈 때만 재알림 |
+
+* 한 번의 평가에서 여러 조건이 충족돼도 **메시지는 1개**(조건은 알림 기록에 각각 남음). 특가는 특가별 1개.
+* **쿨다운**: 같은 Watchlist의 같은 *타입* 알림은 기본 **6시간** 내 재발송 금지(`/settings/notifications`에서 변경).
+* 가격 상승·동일 가격은 알림 없음. 발송 실패 시 상태를 갱신하지 않아 다음 평가에서 재시도.
+* 새 가격이 하나도 없는 refresh(모든 Provider 실패)는 알림을 평가하지 않는다.
+* DEMO 등록 가격은 LIVE 가격과 비교하지 않는다(모드 불일치 시 기준에서 제외).
+
+### Deal Score (기본 버전, ML 아님)
+
+목표가 30% · 최근 평균 대비 30%(이전 관측 ≥3개일 때만) · 최근 최저가 근접 20% · 최근 하락 20%. 계산할 수 없는 항목은 제외하고 가중치를 재정규화하되 **근거가 2개 미만이면 점수를 내지 않는다**("판단 불가"). 80↑ 🔥 매우 좋은 가격 · 65–79 👍 좋은 가격 · 40–64 보통 · 40 미만 비싼 편. 관측 3회 미만은 "참고용".
+
+### 현재 가격 · DEMO/LIVE
+
+* 현재가 = 각 Provider의 **최신 조회 중 최저가** 중 가장 싼 값 (일부 Provider만 조회한 백그라운드 실행이 가격 "상승"처럼 보이지 않도록 Provider별 최신값을 이어서 사용). 24시간 지난 값은 "참고 가격".
+* **DEMO와 LIVE는 섞지 않는다**: LIVE 행이 하나라도 있으면 모든 통계·그래프·알림 기준이 LIVE만 쓰고, 없을 때만 DEMO를 쓰며 화면/알림에 `DEMO DATA`를 표시한다. 특가 행(`trigger_type = deal`)은 운임이 아니라서 가격 통계에서 제외.
+
+### DB (Supabase PostgreSQL)
+
+테이블: `watchlists`, `price_history`, `alerts`(알림 상태), `alert_history`, `notification_settings`, `provider_calls`(호출 로그 — 최소 간격 판단·관리자 통계용) + 기존 `users` 등. 모든 테이블에 **RLS를 켜서**(`0001_enable_rls.sql`) Supabase 공개(anon) API로는 접근할 수 없고, 앱은 서버에서만 `DATABASE_URL`로 접속한다. `price_history` 인덱스: `(watchlist_id, fetched_at)`, `(watchlist_id, flight_key, provider, fetched_at)`.
+
+1. Supabase 프로젝트 생성 → Project Settings → Database → **Connection string(Transaction pooler)** 을 `DATABASE_URL`로.
+2. `npm run db:migrate` (또는 `drizzle/0000_*.sql`, `0001_enable_rls.sql`을 SQL Editor에서 순서대로 실행).
+3. `DATABASE_URL`이 없으면 **임시 메모리 저장소**로 동작(재시작 시 초기화, 화면에 경고). 저장소 구현 두 개(`MemoryWatchlistStore`, `DrizzleWatchlistStore`)는 같은 계약 테스트를 통과하며, Postgres 쪽은 실제 마이그레이션을 적용한 PGlite(인프로세스 Postgres)로 검증한다. *실제 Supabase 서버에는 연결해보지 못했다.*
+4. 인증: Supabase Auth는 아직 연결하지 않았다. **개인용 단일 소유자**(`OWNER_USER_ID`) 모델이며 변경 API는 same-origin JSON만 받는다. 외부에 공개 배포한다면 앞단 인증(또는 Supabase Auth)을 붙여야 한다.
+
+### Telegram 연결
+
+1. Telegram에서 `@BotFather` → `/newbot` → 받은 토큰을 `TELEGRAM_BOT_TOKEN`에 설정 (서버 환경변수만, 화면에는 표시되지 않음).
+2. 만든 봇과 대화를 시작(`/start`)한 뒤 `https://api.telegram.org/bot<TOKEN>/getUpdates`에서 `chat.id`를 확인해 `TELEGRAM_CHAT_ID`에 설정.
+3. `/settings/notifications` → **테스트 메시지 보내기**.
+4. 개발/테스트는 `TELEGRAM_DRY_RUN=true` — 전송 없이 서버 로그에 `[telegram:dry-run]`으로 메시지를 출력한다. **테스트는 항상 Dry Run.** DEMO 데이터 알림은 "🧪 DEMO DATA" 머리말과 함께 보내며 링크 버튼은 붙이지 않는다.
+5. 알림 채널은 `NotificationProvider` 인터페이스(`src/lib/notifications/`)라 Email/Web Push/Kakao는 구현체만 추가하면 된다.
+
+### Cron
+
+`vercel.json`이 `/api/cron/watchlists`를 매시간 호출한다(`0 * * * *`; Vercel Hobby는 하루 1회 제한이라 `0 9 * * *` 등으로 바꿔야 할 수 있음). 호출 주기는 **Provider의 minimum interval과 무관한 "깨우는 주기"**일 뿐이며, 실제 호출 여부는 정책이 결정한다.
+
+* `CRON_SECRET`을 환경변수로 설정하면 Vercel이 `Authorization: Bearer <CRON_SECRET>` 헤더를 자동으로 붙인다. 헤더가 없거나 틀리거나 `CRON_SECRET`이 비어 있으면 **401**(fail closed, 상수 시간 비교).
+* 같은 검색 조건(`search_hash`: 출발·도착·날짜·좌석·인원·직항·주변공항)의 Watchlist는 **Provider 검색 1회**로 묶어 결과를 공유한다. 최근 네트워크 호출이 minimum interval보다 새로우면 호출하지 않고 기존 데이터를 재사용한다.
+* Provider 오류/타임아웃(기본 15초)은 `Promise.allSettled`로 격리되어 전체 Job을 실패시키지 않는다.
+* 수동 실행: `curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/watchlists`
+
+### 화면
+
+`/watchlist`(카드 목록: 현재 가격·목표 가격·등록 당시·변화율·알림 상태, [다시 확인]) · `/watchlist/[id]`(통계, Deal Score, Recharts 그래프 7/30/90일·전체·Provider별 선, 관련 특가, 알림 기록) · `/settings/notifications` · `/admin/watchlists`(개수·활성/정지·오늘 Refresh·알림·최근 오류·Background 가능 Provider 수) · `/admin/providers`(User Search / Background / Minimum Interval / Last User·Background Search / Last Error / Network Calls Today).
+
+### DEMO 테스트 흐름
+
+`DEMO_MODE=true` + `TELEGRAM_DRY_RUN=true`: 검색 → 🔔 이 가격 추적하기(등록 가격 = 현재 DEMO 최저가) → `/admin/watchlists`의 **🧪 DEMO 가격 하락**(DEMO_MODE 전용; DEMO 가격에만 동작, 10% 하락 가정) → 같은 Alert Engine이 실행 → 목표가에 닿으면 Dry Run Telegram 메시지 1개 → 다시 눌러도 중복 알림 없음.
+
+## 실제 사용 모드 (영구 저장 · 알림)
+
+| 항목 | 내용 |
+|---|---|
+| 저장소 | `DATABASE_URL`이 있으면 PostgreSQL(Supabase), 없으면 메모리(재시작 시 초기화). 같은 `WatchlistStore` 인터페이스 |
+| 테이블 | `watchlists`, `price_history`(data_mode = LIVE / DEMO / PUBLIC_DEAL), `alert_history`(dedupe_key), `notification_settings`, `provider_runs` |
+| Migration | `npm run db:migrate` (`drizzle/0002_real_use_storage.sql`: 기존 데이터 삭제 없음, `provider_calls` → `provider_runs` 이름 변경 + 컬럼 추가 + 값 보정) |
+| 저장 흐름 | 검색 → "이 항공권 가격 알림 받기" + 목표 가격 → DB 저장 → 새로고침/서버 재시작 후에도 유지 |
+| 가격 기록 | 사용자 검색에서 **LIVE 가격만** 같은 검색의 Watchlist에 기록 (DEMO 가격은 실제 기록에 섞이지 않음) |
+| 다시 확인 | 사용자 검색 엔진 · 정책이 허용한 서비스만 → price_history → currentPrice/lowestPrice → 목표 판단 → Alert Engine → 발송 |
+| 중복 방지 | 알림 상태는 `alert_history`에서 계산합니다. 재시작·재배포 후에도 같은 알림을 다시 보내지 않습니다 |
+| 연결 우선순위 | Skyscanner → Trip.com → 알리항공권 → 캐치프로그 → 출국의 신 → 플레이윙즈 (정책·승인 우회 없음) |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_DRY_RUN`. DEMO 알림에는 `[테스트]`가 붙습니다 |
+| 관리자 | `/admin`: Watchlist 수, LIVE Provider 수, Provider 상태, 오늘 검색 수, 가격 기록 수, 알림 수, 최근 오류, DB·Telegram 상태 |
+
+로컬에서 실제 Postgres로 시험하기: `DATABASE_URL=postgres://… npm run db:migrate` 후
+`DEMO_MODE=true TELEGRAM_DRY_RUN=true DEMO_PRICE_OFFSET=34800 npm run start` → 저장 → 서버를 `DEMO_PRICE_OFFSET=4800`으로 재시작 → "다시 확인"
+(199,000원 → 169,000원, 목표 170,000원 도달 알림).
+
+## 폴더 구조
+
+```
+flightradar-kr/
+  drizzle/                     # drizzle-kit이 생성한 SQL 마이그레이션 (Supabase에 적용)
+  src/
+    app/
+      page.tsx                 # HOME + 검색창
+      search/                  # 검색 결과 (page, loading, error)
+      admin/providers/         # Provider Health
+      api/search/route.ts      # 검색 API (서버 전용)
+    components/                # UI 컴포넌트
+    features/
+      flight-search/           # engine, normalize, compare, cache, schema
+      deal-engine/             # (Phase 4)
+      alerts/                  # (Phase 2)
+      price-history/           # (Phase 2)
+    providers/
+      types.ts                 # FlightProvider / DealProvider
+      registry.ts
+      skyscanner/ trip/ mock/ catchfrog/ playwings/ chulguk/ ali-flight/
+    lib/                       # db(schema), logger, env, format
+    config/                    # airports 등
+    types/domain.ts            # 공통 도메인 모델
+  tests/
+```
+
+## DB 구조
+
+`src/lib/db/schema.ts`(Drizzle) → `drizzle/*.sql`. 운영 테이블: `users`, `watchlists`, `price_history`, `alerts`, `alert_history`, `notification_settings`, `provider_calls`. (`airports`, `providers`, `searches`, `flight_offers`, `deals`, `provider_logs`는 이후 단계용으로 정의만 있음.) 자세한 설명은 위 "Phase 2 → DB".
+
+## 환경변수
+
+`.env.example` 참고. 실제 키는 `.env.local`에만 두며 Git에 올리지 않는다. 모든 키는 서버에서만 읽는다(`server-only`).
+
+## 실행 방법
+
+```bash
+npm install
+cp .env.example .env.local   # 키가 없어도 DEMO 데이터로 동작
+npm run dev                  # http://localhost:3000
+npm run typecheck && npm run lint && npm test
+```
+
+## Provider 추가 방법
+
+1. `src/providers/<name>/index.ts`에 `FlightProvider`(또는 `DealProvider`) 구현.
+2. 응답 → `FlightOffer` 변환은 `mapper.ts`, 원본 타입은 `types.ts`.
+3. `src/providers/registry.ts`에 등록. 나머지 코드는 수정할 필요 없음.
+
+## 남은 작업 (Phase 3+)
+
+날짜 ±N일 비교와 최저가 캘린더, Skyscanner Indicative/Refresh 연동(정책 확인 후), Trip.com Shopping 매퍼(파트너 협약 후), 캐치프로그/출국의 신 HTML 추출기(약관·robots 확인 + 페이지 소스 샘플 후), Supabase Auth, Email/Web Push 알림, Vercel 배포 상세.

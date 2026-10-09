@@ -1,0 +1,283 @@
+{
+ "_note": "HAND-WRITTEN FIXTURE following the documented Flights Live Prices v3 structure. Not a captured live response.",
+ "sessionToken": "tok-123",
+ "status": "RESULT_STATUS_INCOMPLETE",
+ "content": {
+  "results": {
+   "itineraries": {
+    "i_direct_ke": {
+     "legIds": [
+      "l3",
+      "l4"
+     ],
+     "pricingOptions": [
+      {
+       "price": {
+        "amount": "560000000",
+        "unit": "PRICE_UNIT_MILLI"
+       },
+       "agentIds": [
+        "a_ke"
+       ],
+       "items": [
+        {
+         "price": {
+          "amount": "560000000",
+          "unit": "PRICE_UNIT_MILLI"
+         },
+         "agentId": "a_ke",
+         "deepLink": "https://example.com/deeplink/ke"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "legs": {
+    "l1": {
+     "originPlaceId": "p_icn",
+     "destinationPlaceId": "p_nrt",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 8,
+      "minute": 20,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 10,
+      "minute": 45,
+      "second": 0
+     },
+     "durationInMinutes": 145,
+     "stopCount": 0,
+     "marketingCarrierIds": [
+      "c_7c"
+     ],
+     "segmentIds": [
+      "s1"
+     ]
+    },
+    "l2": {
+     "originPlaceId": "p_nrt",
+     "destinationPlaceId": "p_icn",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 18,
+      "minute": 30,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 21,
+      "minute": 10,
+      "second": 0
+     },
+     "durationInMinutes": 160,
+     "stopCount": 0,
+     "marketingCarrierIds": [
+      "c_7c"
+     ],
+     "segmentIds": [
+      "s2"
+     ]
+    },
+    "l3": {
+     "originPlaceId": "p_icn",
+     "destinationPlaceId": "p_hnd",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 10,
+      "minute": 30,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 12,
+      "minute": 55,
+      "second": 0
+     },
+     "durationInMinutes": 145,
+     "stopCount": 0,
+     "marketingCarrierIds": [
+      "c_ke"
+     ],
+     "segmentIds": [
+      "s3"
+     ]
+    },
+    "l4": {
+     "originPlaceId": "p_hnd",
+     "destinationPlaceId": "p_icn",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 16,
+      "minute": 20,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 18,
+      "minute": 50,
+      "second": 0
+     },
+     "durationInMinutes": 150,
+     "stopCount": 0,
+     "marketingCarrierIds": [
+      "c_ke"
+     ],
+     "segmentIds": [
+      "s4"
+     ]
+    },
+    "l5": {
+     "originPlaceId": "p_icn",
+     "destinationPlaceId": "p_nrt",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 6,
+      "minute": 30,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 13,
+      "minute": 30,
+      "second": 0
+     },
+     "durationInMinutes": 360,
+     "stopCount": 1,
+     "marketingCarrierIds": [
+      "c_tw",
+      "c_7c"
+     ],
+     "segmentIds": [
+      "s5"
+     ]
+    },
+    "l6": {
+     "originPlaceId": "p_nrt",
+     "destinationPlaceId": "p_icn",
+     "departureDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 9,
+      "minute": 0,
+      "second": 0
+     },
+     "arrivalDateTime": {
+      "year": 2026,
+      "month": 11,
+      "day": 15,
+      "hour": 15,
+      "minute": 0,
+      "second": 0
+     },
+     "durationInMinutes": 330,
+     "stopCount": 1,
+     "marketingCarrierIds": [
+      "c_tw"
+     ],
+     "segmentIds": [
+      "s6"
+     ]
+    }
+   },
+   "segments": {
+    "s1": {
+     "marketingFlightNumber": "1102",
+     "marketingCarrierId": "c_7c"
+    },
+    "s2": {
+     "marketingFlightNumber": "1101",
+     "marketingCarrierId": "c_7c"
+    },
+    "s3": {
+     "marketingFlightNumber": "703",
+     "marketingCarrierId": "c_ke"
+    },
+    "s4": {
+     "marketingFlightNumber": "704",
+     "marketingCarrierId": "c_ke"
+    },
+    "s5": {
+     "marketingFlightNumber": "201",
+     "marketingCarrierId": "c_tw"
+    },
+    "s6": {
+     "marketingFlightNumber": "202",
+     "marketingCarrierId": "c_tw"
+    }
+   },
+   "places": {
+    "p_icn": {
+     "entityId": "p_icn",
+     "iata": "ICN",
+     "name": "Incheon",
+     "type": "PLACE_TYPE_AIRPORT"
+    },
+    "p_nrt": {
+     "entityId": "p_nrt",
+     "iata": "NRT",
+     "name": "Tokyo Narita",
+     "type": "PLACE_TYPE_AIRPORT"
+    },
+    "p_hnd": {
+     "entityId": "p_hnd",
+     "iata": "HND",
+     "name": "Tokyo Haneda",
+     "type": "PLACE_TYPE_AIRPORT"
+    }
+   },
+   "carriers": {
+    "c_7c": {
+     "name": "제주항공",
+     "iata": "7C"
+    },
+    "c_ke": {
+     "name": "대한항공",
+     "iata": "KE"
+    },
+    "c_tw": {
+     "name": "티웨이항공",
+     "iata": "TW"
+    }
+   },
+   "agents": {
+    "a_trip": {
+     "name": "Trip.com",
+     "type": "AGENT_TYPE_TRAVEL_AGENT"
+    },
+    "a_7c": {
+     "name": "Jeju Air",
+     "type": "AGENT_TYPE_AIRLINE"
+    },
+    "a_ke": {
+     "name": "Korean Air",
+     "type": "AGENT_TYPE_AIRLINE"
+    }
+   }
+  }
+ }
+}
